@@ -1,0 +1,11 @@
+User-agent: *
+Disallow: /src/
+Disallow: /scripts/
+Disallow: /styles/
+Disallow: /types/
+Disallow: /package.json
+Disallow: /tsconfig.json
+Disallow: /vite.config.ts
+Disallow: /README.md
+
+Allow: /public/

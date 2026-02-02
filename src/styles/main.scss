@@ -1,0 +1,306 @@
+// 主样式入口
+@use 'variables' as *;
+@use 'base';
+@use 'components';
+@use 'layout';
+
+// 导入字体
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+// 上传区域
+.drop-zone {
+  border: 2px dashed $border-subtle;
+  border-radius: $radius-xl;
+  padding: $spacing-8 $spacing-4;
+  text-align: center;
+  cursor: pointer;
+  transition: all $transition-base;
+  background: $bg-card;
+  
+  &:hover,
+  &--active {
+    border-color: $color-primary;
+    background: rgba($color-primary, 0.05);
+  }
+  
+  &__icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto $spacing-4;
+    color: $gray-500;
+    
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+  }
+  
+  &__title {
+    font-size: $text-base;
+    font-weight: 500;
+    color: $gray-200;
+    margin-bottom: $spacing-2;
+  }
+  
+  &__hint {
+    font-size: $text-sm;
+    color: $gray-500;
+  }
+  
+  input[type="file"] {
+    display: none;
+  }
+}
+
+// 照片列表
+.photo-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  gap: $spacing-2;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: $spacing-2;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: $radius-md;
+  
+  &:empty {
+    display: none;
+  }
+}
+
+// 照片缩略图
+.photo-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: $radius-sm;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all $transition-fast;
+  
+  &:hover {
+    border-color: $border-strong;
+  }
+  
+  &--selected {
+    border-color: $color-primary;
+    box-shadow: 0 0 0 2px rgba($color-primary, 0.3);
+  }
+  
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  
+  &__remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 20px;
+    height: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity $transition-fast;
+    
+    svg {
+      width: 12px;
+      height: 12px;
+      color: white;
+    }
+    
+    &:hover {
+      background: $color-error;
+    }
+  }
+  
+  &:hover .photo-thumb__remove {
+    opacity: 1;
+  }
+}
+
+// 属性面板
+.properties-panel {
+  .form-row {
+    margin-bottom: $spacing-3;
+  }
+  
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $spacing-2;
+    margin-top: $spacing-4;
+    padding-top: $spacing-4;
+    border-top: 1px solid $border-subtle;
+  }
+}
+
+// Toast 消息
+.toast-container {
+  position: fixed;
+  bottom: $spacing-6;
+  right: $spacing-6;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-3;
+  z-index: 1000;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: $spacing-3;
+  padding: $spacing-3 $spacing-4;
+  background: $gray-800;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-lg;
+  animation: toast-in 0.3s ease;
+  max-width: 360px;
+  
+  &__icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  
+  &__message {
+    flex: 1;
+    font-size: $text-sm;
+    color: $gray-200;
+  }
+  
+  &__close {
+    padding: $spacing-1;
+    color: $gray-500;
+    transition: color $transition-fast;
+    
+    &:hover {
+      color: $gray-300;
+    }
+    
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+  
+  &--success .toast__icon {
+    color: $color-success;
+  }
+  
+  &--error .toast__icon {
+    color: $color-error;
+  }
+  
+  &--warning .toast__icon {
+    color: $color-warning;
+  }
+  
+  &--info .toast__icon {
+    color: $color-accent;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+// 裁剪模式覆盖层
+.crop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  
+  &__frame {
+    position: absolute;
+    border: 2px dashed $color-primary;
+    background: transparent;
+    
+    &::before {
+      content: '';
+      position: absolute;
+      inset: -9999px;
+      background: rgba(0, 0, 0, 0.5);
+      clip-path: polygon(
+        0 0, 100% 0, 100% 100%, 0 100%,
+        0 0,
+        calc(var(--x) * 1px) calc(var(--y) * 1px),
+        calc(var(--x) * 1px) calc((var(--y) + var(--h)) * 1px),
+        calc((var(--x) + var(--w)) * 1px) calc((var(--y) + var(--h)) * 1px),
+        calc((var(--x) + var(--w)) * 1px) calc(var(--y) * 1px),
+        calc(var(--x) * 1px) calc(var(--y) * 1px)
+      );
+    }
+  }
+  
+  &__handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: white;
+    border: 2px solid $color-primary;
+    border-radius: 2px;
+    
+    &--nw { top: -6px; left: -6px; cursor: nwse-resize; }
+    &--ne { top: -6px; right: -6px; cursor: nesw-resize; }
+    &--sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+    &--se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+    &--n { top: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    &--s { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    &--w { left: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    &--e { right: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+  }
+}
+
+// 导出对话框
+.export-dialog {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  
+  &__content {
+    background: $gray-900;
+    border: 1px solid $border-subtle;
+    border-radius: $radius-xl;
+    padding: $spacing-6;
+    max-width: 400px;
+    width: 90%;
+    
+    h3 {
+      font-size: $text-lg;
+      font-weight: 600;
+      margin-bottom: $spacing-4;
+    }
+  }
+  
+  &__progress {
+    text-align: center;
+    padding: $spacing-6;
+    
+    .spinner {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto $spacing-4;
+    }
+    
+    p {
+      color: $gray-400;
+    }
+  }
+}

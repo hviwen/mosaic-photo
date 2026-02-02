@@ -17,7 +17,56 @@
     </v-toolbar>
     <v-divider />
 
-    <div class="pa-4 flex-1-1 overflow-y-auto">
+    <div v-if="ui.leftSidebarCollapsed" class="py-3 px-2 flex-1-1 d-flex flex-column align-center">
+      <v-btn
+        icon
+        variant="text"
+        title="上传照片"
+        @click="expandLeftSidebar()"
+      >
+        <v-icon icon="mdi-image-multiple" />
+      </v-btn>
+      <v-btn
+        icon
+        variant="text"
+        title="画布尺寸"
+        @click="expandLeftSidebar()"
+      >
+        <v-icon icon="mdi-aspect-ratio" />
+      </v-btn>
+      <v-btn
+        icon
+        variant="text"
+        title="自动排版"
+        :disabled="store.photoCount === 0"
+        @click="expandLeftSidebar()"
+      >
+        <v-icon icon="mdi-auto-fix" />
+      </v-btn>
+      <v-btn
+        icon
+        variant="text"
+        title="导出拼图"
+        :disabled="store.photoCount === 0"
+        @click="expandLeftSidebar()"
+      >
+        <v-icon icon="mdi-export" />
+      </v-btn>
+
+      <v-spacer />
+
+      <v-btn
+        icon
+        variant="text"
+        title="清空"
+        :disabled="store.photoCount === 0"
+        @click="clearAll"
+      >
+        <v-icon icon="mdi-delete-sweep" />
+      </v-btn>
+    </div>
+
+    <div v-else class="pa-4 flex-1-1 overflow-y-auto">
       <v-card variant="tonal" class="mb-4">
         <v-card-title class="text-subtitle-2">上传照片</v-card-title>
         <v-card-text>
@@ -135,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
@@ -169,6 +218,12 @@ const formatOptions = [
 
 function handlePresetSelect(v: unknown) {
   store.setPreset(String(v ?? ''))
+}
+
+async function expandLeftSidebar() {
+  if (!ui.leftSidebarCollapsed) return
+  ui.toggleLeftSidebar()
+  await nextTick()
 }
 
 function handleResolutionSelect(v: ExportResolutionPreset) {

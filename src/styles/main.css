@@ -53,7 +53,7 @@ body {
   }
 
   .main-content {
-    @apply min-w-0 overflow-hidden flex flex-col;
+    @apply min-w-0 min-h-0 h-full overflow-hidden flex flex-col;
   }
 
   .sidebar {

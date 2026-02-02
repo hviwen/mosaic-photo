@@ -23,7 +23,30 @@
     </v-toolbar>
     <v-divider />
 
-    <div class="pa-4 flex-1-1 overflow-y-auto">
+    <div v-if="ui.rightSidebarCollapsed" class="py-3 px-2 flex-1-1 d-flex flex-column align-center">
+      <v-btn
+        icon
+        variant="text"
+        title="照片属性"
+        @click="expandRightSidebar()"
+      >
+        <v-icon icon="mdi-tune-variant" />
+      </v-btn>
+
+      <v-btn
+        icon
+        variant="text"
+        :title="selectedPhoto ? '删除照片' : '在画布上选择一张照片'"
+        :disabled="!selectedPhoto"
+        @click="deletePhoto"
+      >
+        <v-icon icon="mdi-delete" />
+      </v-btn>
+
+      <v-spacer />
+    </div>
+
+    <div v-else class="pa-4 flex-1-1 overflow-y-auto">
       <v-alert v-if="!selectedPhoto" type="info" variant="tonal" density="compact">
         在画布上选择一张照片
       </v-alert>
@@ -123,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, watch } from 'vue'
 import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
 import { useThemeStore } from '@/stores/theme'
@@ -143,6 +166,22 @@ const scalePercent = computed(() =>
 
 const rotationDeg = computed(() => 
   selectedPhoto.value ? Math.round(radiansToDegrees(selectedPhoto.value.rotation)) : 0
+)
+
+async function expandRightSidebar() {
+  if (!ui.rightSidebarCollapsed) return
+  ui.toggleRightSidebar()
+  await nextTick()
+  window.dispatchEvent(new Event('resize'))
+}
+
+watch(
+  () => [store.canvasWidth, store.canvasHeight, ui.rightSidebarCollapsed],
+  async ([, , collapsed]) => {
+    if (collapsed) return
+    await nextTick()
+    window.dispatchEvent(new Event('resize'))
+  }
 )
 
 function updatePosition(axis: 'cx' | 'cy', v: unknown) {

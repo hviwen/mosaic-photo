@@ -170,23 +170,15 @@ export const useMosaicStore = defineStore('mosaic', () => {
     currentPresetId.value = presetId
     canvasWidth.value = preset.width
     canvasHeight.value = preset.height
-    // 重新约束所有照片位置
-    photos.value.forEach(photo => {
-      const clamped = clampPhotoToCanvas(photo, preset.width, preset.height)
-      photo.cx = clamped.cx
-      photo.cy = clamped.cy
-    })
+    // 画布尺寸变化后自动排版（即使当前有选中照片也需要重排）
+    autoLayout()
   }
 
   function setCustomSize(width: number, height: number) {
     canvasWidth.value = width
     canvasHeight.value = height
     currentPresetId.value = 'custom'
-    photos.value.forEach(photo => {
-      const clamped = clampPhotoToCanvas(photo, width, height)
-      photo.cx = clamped.cx
-      photo.cy = clamped.cy
-    })
+    autoLayout()
   }
 
   function selectPhoto(id: string | null) {

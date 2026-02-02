@@ -114,6 +114,9 @@ const viewport = ref<Viewport>({
   cssHeight: 600
 })
 
+// 默认保持“自适应填充”模式；当用户手动缩放后，停止自动重算缩放比例
+const autoFit = ref(true)
+
 const zoomPercent = computed(() => Math.round(viewport.value.scale * 100))
 
 // 拖拽状态
@@ -136,7 +139,7 @@ onMounted(() => {
   // Prefer ResizeObserver over window resize (sidebar width changes, etc.)
   if (stageBody.value && 'ResizeObserver' in window) {
     resizeObserver.value = new ResizeObserver(() => {
-      handleResize({ preserveScale: true })
+      handleResize({ preserveScale: !autoFit.value })
     })
     resizeObserver.value.observe(stageBody.value)
   } else {
@@ -173,6 +176,7 @@ watch(
   async () => {
     // Canvas size changed (preset/custom): refit to viewport.
     await nextTick()
+    autoFit.value = true
     handleResize({ preserveScale: false })
   }
 )
@@ -239,16 +243,19 @@ function handleResize(opts?: { preserveScale?: boolean } | UIEvent) {
 }
 
 function fitToView() {
+  autoFit.value = true
   handleResize({ preserveScale: false })
 }
 
 function zoomIn() {
+  autoFit.value = false
   viewport.value.scale = Math.min(viewport.value.scale * 1.2, 2)
   recenterViewport()
   requestRender()
 }
 
 function zoomOut() {
+  autoFit.value = false
   viewport.value.scale = Math.max(viewport.value.scale / 1.2, 0.02)
   recenterViewport()
   requestRender()
@@ -261,6 +268,7 @@ function recenterViewport() {
 }
 
 function handleWheel(e: WheelEvent) {
+  autoFit.value = false
   const delta = e.deltaY > 0 ? 0.9 : 1.1
   viewport.value.scale = clamp(viewport.value.scale * delta, 0.02, 2)
   recenterViewport()

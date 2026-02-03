@@ -579,16 +579,46 @@ export function calculateSmartCrop(
 
   if (!detections || detections.length === 0) return clampCropToBounds(maxFit, base)
 
-  const focus = pickImportantSubset(detections, base)
+  // 优化：竖向人像（原图高 > 宽）被裁剪为横向比例（targetAspect > 1）时，
+  // 常见问题是裁剪高度受“原图宽度/目标比例”限制，导致人脸上下被截断。
+  // 处理策略：
+  // 1) 仅用人脸检测框计算焦点，避免被其它“显著性对象”拉偏
+  // 2) 对人脸焦点增加更强的纵向 padding（且略偏向“上方”保护头部）
+  // 3) 若 padding 导致无法完整包含，则自动把 padding 压缩到“刚好能放下”为止，优先保证不切脸
+  const hasFaces = detections.some(d => d.kind === 'face')
+  const portraitToLandscape = imageHeight > imageWidth && targetAspect > 1 && hasFaces
+
+  const focusCandidates = portraitToLandscape ? detections.filter(d => d.kind === 'face') : detections
+  const focus = pickImportantSubset(focusCandidates, base)
   if (!focus) return clampCropToBounds(maxFit, base)
 
-  // 给 focus 增加 padding，避免贴边切脸/切主体
-  const pad = 0.12 * Math.min(base.width, base.height) + 0.18 * Math.min(focus.width, focus.height)
+  // 给 focus 增加 padding，避免贴边切脸/切主体（同时确保不会因 padding 过大而“必然切脸”）
+  const basePad = 0.12 * Math.min(base.width, base.height)
+  const focusPad = 0.18 * Math.min(focus.width, focus.height)
+  const pad = basePad + focusPad
+
+  // 竖向人像 → 横向裁剪：更偏向纵向留白（尤其是上方）
+  let padX = pad
+  let padY = pad
+  let topBias = 0.5
+  if (portraitToLandscape) {
+    padX *= 1.15
+    padY *= 1.65
+    topBias = 0.65
+    // 若 focus 尺寸已接近/超过裁剪框，则把 padding 压缩到可以完整包含为止（优先保证不切脸）
+    const maxPadX = Math.max(0, cropW - focus.width)
+    const maxPadY = Math.max(0, cropH - focus.height)
+    padX = Math.min(padX, maxPadX)
+    padY = Math.min(padY, maxPadY)
+  }
+
+  const topPadY = padY * topBias
+  const bottomPadY = padY - topPadY
   const focusPadded: CropRect = {
-    x: focus.x - pad / 2,
-    y: focus.y - pad / 2,
-    width: focus.width + pad,
-    height: focus.height + pad,
+    x: focus.x - padX / 2,
+    y: focus.y - topPadY,
+    width: focus.width + padX,
+    height: focus.height + topPadY + bottomPadY,
   }
 
   const baseXMin = base.x

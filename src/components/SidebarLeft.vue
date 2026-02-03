@@ -293,7 +293,7 @@ async function handleArrange() {
   await new Promise(resolve => setTimeout(resolve, 50))
 
   try {
-    store.autoLayout()
+    store.autoLayoutWithHistory('自动排版')
     toast.success('自动排列完成！')
   } catch (err) {
     console.error('Arrange failed:', err)

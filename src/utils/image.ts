@@ -1,7 +1,13 @@
-import type { PhotoEntity, CropRect } from '@/types'
+import type { PhotoEntity, CropRect, PhotoAdjustments } from '@/types'
 import { generateId } from './math'
 
 const MAX_IMAGE_EDGE = 2048 // 限制图片最大边长以提升性能
+const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
+  brightness: 1,
+  contrast: 1,
+  saturation: 1,
+  preset: 'none',
+}
 
 /**
  * 从文件创建照片实体
@@ -29,6 +35,7 @@ export async function createPhotoFromFile(
     imageWidth: width,
     imageHeight: height,
     crop,
+    adjustments: { ...DEFAULT_ADJUSTMENTS },
     cx: canvasWidth / 2,
     cy: canvasHeight / 2,
     scale,

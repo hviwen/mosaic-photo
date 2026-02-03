@@ -1,5 +1,6 @@
 import type { PhotoEntity, ExportFormat, ExportResolutionPreset } from '@/types'
 import { canvasToBlob, downloadBlob } from '@/utils/image'
+import { buildCanvasFilter } from '@/utils/filters'
 
 interface ExportStore {
   canvasWidth: number
@@ -82,6 +83,7 @@ export async function exportMosaic(store: ExportStore): Promise<void> {
     ctx.save()
     ctx.translate(photo.cx * outScale, photo.cy * outScale)
     ctx.rotate(photo.rotation)
+    ctx.filter = buildCanvasFilter(photo.adjustments)
 
     const hw = (crop.width * photo.scale * outScale) / 2
     const hh = (crop.height * photo.scale * outScale) / 2

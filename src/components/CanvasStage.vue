@@ -96,6 +96,7 @@ import {
   getHandlePositions,
   pointInPhoto
 } from '@/utils/math'
+import { buildCanvasFilter } from '@/utils/filters'
 
 const store = useMosaicStore()
 const toast = useToastStore()
@@ -122,7 +123,7 @@ const zoomPercent = computed(() => Math.round(viewport.value.scale * 100))
 // 拖拽状态
 type PointerMode = 
   | { kind: 'none' }
-  | { kind: 'drag'; id: string; dx: number; dy: number }
+  | { kind: 'drag'; id: string; dx: number; dy: number; startCx: number; startCy: number }
   | { kind: 'resize'; id: string; handle: Handle; startScale: number; startX: number; startY: number }
   | { kind: 'crop-move'; id: string; startX: number; startY: number; startCrop: CropRect }
   | { kind: 'crop-resize'; id: string; handle: Handle; startX: number; startY: number; startCrop: CropRect }
@@ -371,7 +372,9 @@ function handlePointerDown(e: PointerEvent) {
       kind: 'drag',
       id: photo.id,
       dx: x - photo.cx,
-      dy: y - photo.cy
+      dy: y - photo.cy,
+      startCx: photo.cx,
+      startCy: photo.cy,
     }
   } else {
     store.selectPhoto(null)
@@ -449,7 +452,35 @@ function handlePointerMove(e: PointerEvent) {
 }
 
 function handlePointerUp() {
+  const prev = pointerMode.value
   pointerMode.value = { kind: 'none' }
+
+  if (prev.kind === 'drag') {
+    const photo = store.photos.find(p => p.id === prev.id)
+    if (!photo) return
+    if (photo.cx !== prev.startCx || photo.cy !== prev.startCy) {
+      store.pushPhotoHistoryFromPartials(
+        prev.id,
+        '拖动',
+        { cx: prev.startCx, cy: prev.startCy },
+        { cx: photo.cx, cy: photo.cy }
+      )
+    }
+    return
+  }
+
+  if (prev.kind === 'resize') {
+    const photo = store.photos.find(p => p.id === prev.id)
+    if (!photo) return
+    if (photo.scale !== prev.startScale) {
+      store.pushPhotoHistoryFromPartials(
+        prev.id,
+        '缩放',
+        { scale: prev.startScale },
+        { scale: photo.scale }
+      )
+    }
+  }
 }
 
 function findCropHandleAt(photo: PhotoEntity, canvasX: number, canvasY: number): Handle | null {
@@ -495,12 +526,12 @@ function handleKeyDown(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey
   if (mod && key === 'z' && !e.shiftKey) {
     e.preventDefault()
-    store.undoCrop()
+    store.undo()
     return
   }
   if (mod && ((key === 'z' && e.shiftKey) || key === 'y')) {
     e.preventDefault()
-    store.redoCrop()
+    store.redo()
     return
   }
 
@@ -615,6 +646,7 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
   c.save()
   c.translate(photo.cx, photo.cy)
   c.rotate(photo.rotation)
+  c.filter = buildCanvasFilter(photo.adjustments)
   
   const crop = store.cropModePhotoId === photo.id
     ? photo.crop

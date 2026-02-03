@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { PhotoEntity, CanvasPreset, ExportFormat, ExportResolutionPreset, CropRect, AppMode, Placement } from '@/types'
+import type { PhotoEntity, CanvasPreset, ExportFormat, ExportResolutionPreset, CropRect, AppMode, Placement, PhotoAdjustments } from '@/types'
 import { fillArrangePhotos } from '@/composables/useLayout'
-import { clampPhotoToCanvas, clampCrop } from '@/utils/math'
+import { clampPhotoToCanvas, clampCrop, clamp } from '@/utils/math'
+import { centerCropToAspect, createPhotoFromFile } from '@/utils/image'
 
 const PRESETS: CanvasPreset[] = [
   { id: '40x50', label: '40cm × 50cm', width: 4724, height: 5906 },
@@ -14,6 +15,58 @@ const PRESETS: CanvasPreset[] = [
 ]
 
 export const useMosaicStore = defineStore('mosaic', () => {
+  type PhotoCoreSnapshot = {
+    id: string
+    cx: number
+    cy: number
+    scale: number
+    rotation: number
+    zIndex: number
+    crop: CropRect
+    layoutCrop?: CropRect
+    adjustments: PhotoAdjustments
+  }
+
+  type PhotoFullSnapshot = PhotoCoreSnapshot & {
+    name: string
+    srcUrl: string
+    image: HTMLCanvasElement
+    imageWidth: number
+    imageHeight: number
+  }
+
+  type CanvasSnapshot = PhotoCoreSnapshot[]
+
+  type HistoryEntry =
+    | {
+        id: string
+        at: number
+        label: string
+        kind: 'photo'
+        photoId: string
+        before: PhotoCoreSnapshot
+        after: PhotoCoreSnapshot
+      }
+    | {
+        id: string
+        at: number
+        label: string
+        kind: 'photoFull'
+        photoId: string
+        before: PhotoFullSnapshot
+        after: PhotoFullSnapshot
+      }
+    | {
+        id: string
+        at: number
+        label: string
+        kind: 'canvas'
+        before: CanvasSnapshot
+        after: CanvasSnapshot
+      }
+
+  const HISTORY_LIMIT = 80
+
   // State
   const presets = ref<CanvasPreset[]>(PRESETS)
   const currentPresetId = ref<string>('40x50')
@@ -28,9 +81,9 @@ export const useMosaicStore = defineStore('mosaic', () => {
   const isExporting = ref<boolean>(false)
   const mode = ref<AppMode>({ kind: 'idle' })
 
-  // Crop history (undo/redo)
-  const cropUndoStack = ref<Array<{ id: string; before: CropRect; after: CropRect }>>([])
-  const cropRedoStack = ref<Array<{ id: string; before: CropRect; after: CropRect }>>([])
+  // 操作历史（撤销/重做）
+  const historyUndoStack = ref<HistoryEntry[]>([])
+  const historyRedoStack = ref<HistoryEntry[]>([])
 
   // Computed
   const currentPreset = computed(() => 
@@ -51,8 +104,188 @@ export const useMosaicStore = defineStore('mosaic', () => {
     [...photos.value].sort((a, b) => a.zIndex - b.zIndex)
   )
 
-  const canUndoCrop = computed(() => cropUndoStack.value.length > 0)
-  const canRedoCrop = computed(() => cropRedoStack.value.length > 0)
+  const canUndo = computed(() => historyUndoStack.value.length > 0)
+  const canRedo = computed(() => historyRedoStack.value.length > 0)
+  const history = computed(() => historyUndoStack.value)
+
+  function snapshotCropRect(crop: CropRect): CropRect {
+    return { x: crop.x, y: crop.y, width: crop.width, height: crop.height }
+  }
+
+  function snapshotAdjustments(a: PhotoAdjustments): PhotoAdjustments {
+    return {
+      brightness: a.brightness,
+      contrast: a.contrast,
+      saturation: a.saturation,
+      preset: a.preset,
+    }
+  }
+
+  function snapshotPhotoCore(photo: PhotoEntity): PhotoCoreSnapshot {
+    return {
+      id: photo.id,
+      cx: photo.cx,
+      cy: photo.cy,
+      scale: photo.scale,
+      rotation: photo.rotation,
+      zIndex: photo.zIndex,
+      crop: snapshotCropRect(photo.crop),
+      layoutCrop: photo.layoutCrop ? snapshotCropRect(photo.layoutCrop) : undefined,
+      adjustments: snapshotAdjustments(photo.adjustments),
+    }
+  }
+
+  function snapshotPhotoFull(photo: PhotoEntity): PhotoFullSnapshot {
+    return {
+      ...snapshotPhotoCore(photo),
+      name: photo.name,
+      srcUrl: photo.srcUrl,
+      image: photo.image,
+      imageWidth: photo.imageWidth,
+      imageHeight: photo.imageHeight,
+    }
+  }
+
+  function snapshotCanvas(): CanvasSnapshot {
+    return photos.value.map(snapshotPhotoCore)
+  }
+
+  function applyPhotoCoreSnapshot(photo: PhotoEntity, snap: PhotoCoreSnapshot) {
+    photo.cx = snap.cx
+    photo.cy = snap.cy
+    photo.scale = snap.scale
+    photo.rotation = snap.rotation
+    photo.zIndex = snap.zIndex
+    photo.crop = clampCrop(snapshotCropRect(snap.crop), photo.imageWidth, photo.imageHeight)
+    photo.layoutCrop = snap.layoutCrop
+      ? clampCrop(snapshotCropRect(snap.layoutCrop), photo.imageWidth, photo.imageHeight)
+      : undefined
+    photo.adjustments = snapshotAdjustments(snap.adjustments)
+  }
+
+  function applyPhotoFullSnapshot(photo: PhotoEntity, snap: PhotoFullSnapshot) {
+    photo.name = snap.name
+    photo.srcUrl = snap.srcUrl
+    photo.image = snap.image
+    photo.imageWidth = snap.imageWidth
+    photo.imageHeight = snap.imageHeight
+    applyPhotoCoreSnapshot(photo, snap)
+  }
+
+  function applyCanvasSnapshot(snap: CanvasSnapshot) {
+    for (const s of snap) {
+      const photo = photos.value.find(p => p.id === s.id)
+      if (!photo) continue
+      applyPhotoCoreSnapshot(photo, s)
+    }
+  }
+
+  function pushHistory(entry: HistoryEntry) {
+    historyUndoStack.value.push(entry)
+    historyRedoStack.value = []
+    if (historyUndoStack.value.length > HISTORY_LIMIT) {
+      historyUndoStack.value.splice(0, historyUndoStack.value.length - HISTORY_LIMIT)
+    }
+  }
+
+  type PhotoHistoryPartial = Partial<
+    Pick<PhotoEntity, 'cx' | 'cy' | 'scale' | 'rotation' | 'zIndex' | 'crop' | 'layoutCrop' | 'adjustments'>
+  >
+
+  function toSnapshotCropMaybe(crop?: CropRect): CropRect | undefined {
+    if (!crop) return undefined
+    return snapshotCropRect(crop)
+  }
+
+  function toSnapshotAdjustmentsMaybe(a?: PhotoAdjustments): PhotoAdjustments | undefined {
+    if (!a) return undefined
+    return snapshotAdjustments(a)
+  }
+
+  function pushPhotoHistoryFromPartials(
+    photoId: string,
+    label: string,
+    beforePartial: PhotoHistoryPartial,
+    afterPartial: PhotoHistoryPartial
+  ) {
+    const photo = photos.value.find(p => p.id === photoId)
+    if (!photo) return
+
+    const base = snapshotPhotoCore(photo)
+
+    const before: PhotoCoreSnapshot = {
+      ...base,
+      cx: beforePartial.cx ?? base.cx,
+      cy: beforePartial.cy ?? base.cy,
+      scale: beforePartial.scale ?? base.scale,
+      rotation: beforePartial.rotation ?? base.rotation,
+      zIndex: beforePartial.zIndex ?? base.zIndex,
+      crop: toSnapshotCropMaybe(beforePartial.crop) ?? base.crop,
+      layoutCrop: beforePartial.layoutCrop ? toSnapshotCropMaybe(beforePartial.layoutCrop) : base.layoutCrop,
+      adjustments: toSnapshotAdjustmentsMaybe(beforePartial.adjustments) ?? base.adjustments,
+    }
+
+    const after: PhotoCoreSnapshot = {
+      ...base,
+      cx: afterPartial.cx ?? base.cx,
+      cy: afterPartial.cy ?? base.cy,
+      scale: afterPartial.scale ?? base.scale,
+      rotation: afterPartial.rotation ?? base.rotation,
+      zIndex: afterPartial.zIndex ?? base.zIndex,
+      crop: toSnapshotCropMaybe(afterPartial.crop) ?? base.crop,
+      layoutCrop: afterPartial.layoutCrop ? toSnapshotCropMaybe(afterPartial.layoutCrop) : base.layoutCrop,
+      adjustments: toSnapshotAdjustmentsMaybe(afterPartial.adjustments) ?? base.adjustments,
+    }
+
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label,
+      kind: 'photo',
+      photoId,
+      before,
+      after,
+    })
+  }
+
+  function undo() {
+    const entry = historyUndoStack.value.pop()
+    if (!entry) return
+
+    if (entry.kind === 'photo') {
+      const photo = photos.value.find(p => p.id === entry.photoId)
+      if (photo) applyPhotoCoreSnapshot(photo, entry.before)
+    } else if (entry.kind === 'photoFull') {
+      const photo = photos.value.find(p => p.id === entry.photoId)
+      if (photo) applyPhotoFullSnapshot(photo, entry.before)
+    } else if (entry.kind === 'canvas') {
+      applyCanvasSnapshot(entry.before)
+    }
+
+    historyRedoStack.value.push(entry)
+  }
+
+  function redo() {
+    const entry = historyRedoStack.value.pop()
+    if (!entry) return
+
+    if (entry.kind === 'photo') {
+      const photo = photos.value.find(p => p.id === entry.photoId)
+      if (photo) applyPhotoCoreSnapshot(photo, entry.after)
+    } else if (entry.kind === 'photoFull') {
+      const photo = photos.value.find(p => p.id === entry.photoId)
+      if (photo) applyPhotoFullSnapshot(photo, entry.after)
+    } else if (entry.kind === 'canvas') {
+      applyCanvasSnapshot(entry.after)
+    }
+
+    historyUndoStack.value.push(entry)
+  }
+
+  function clearHistory() {
+    historyUndoStack.value = []
+    historyRedoStack.value = []
+  }
 
   // Actions
   function addPhoto(photo: PhotoEntity) {
@@ -81,6 +314,10 @@ export const useMosaicStore = defineStore('mosaic', () => {
       photo.layoutCrop = undefined
     }
 
+    if (patch.adjustments) {
+      photo.adjustments = snapshotAdjustments(patch.adjustments)
+    }
+
     if (patch.cx !== undefined || patch.cy !== undefined || 
         patch.scale !== undefined || patch.rotation !== undefined) {
       const updatedPhoto = { ...photo, ...patch }
@@ -100,52 +337,82 @@ export const useMosaicStore = defineStore('mosaic', () => {
     }
   }
 
+  function updatePhotoWithHistory(
+    id: string,
+    patch: Partial<Omit<PhotoEntity, 'id' | 'image' | 'imageWidth' | 'imageHeight' | 'srcUrl' | 'name'>>,
+    label: string
+  ) {
+    const photo = photos.value.find(p => p.id === id)
+    if (!photo) return
+    const before = snapshotPhotoCore(photo)
+    updatePhoto(id, patch)
+    const after = snapshotPhotoCore(photo)
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label,
+      kind: 'photo',
+      photoId: id,
+      before,
+      after,
+    })
+  }
+
   function autoLayout() {
     if (photos.value.length === 0) return
     const placements = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value)
     applyPlacements(placements)
   }
 
-  function applyCrop(id: string, crop: CropRect) {
+  function autoLayoutWithHistory(label: string = '自动排版') {
+    if (photos.value.length === 0) return
+    const before = snapshotCanvas()
+    autoLayout()
+    const after = snapshotCanvas()
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label,
+      kind: 'canvas',
+      before,
+      after,
+    })
+  }
+
+  function applyPlacementsWithHistory(placements: Placement[], label: string) {
+    if (photos.value.length === 0) return
+    const before = snapshotCanvas()
+    applyPlacements(placements)
+    const after = snapshotCanvas()
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label,
+      kind: 'canvas',
+      before,
+      after,
+    })
+  }
+
+  function applyCrop(id: string, crop: CropRect, label: string = '裁剪') {
     const photo = photos.value.find(p => p.id === id)
     if (!photo) return
 
-    const before = { ...photo.crop }
-    const after = clampCrop(crop, photo.imageWidth, photo.imageHeight)
-
-    photo.crop = after
+    const before = snapshotCanvas()
+    photo.crop = clampCrop(crop, photo.imageWidth, photo.imageHeight)
     photo.layoutCrop = undefined
-    cropUndoStack.value.push({ id, before, after })
-    cropRedoStack.value = []
-
     // 裁剪后重新排版，自动更新位置和尺寸
     autoLayout()
-  }
 
-  function undoCrop() {
-    const cmd = cropUndoStack.value.pop()
-    if (!cmd) return
-
-    const photo = photos.value.find(p => p.id === cmd.id)
-    if (!photo) return
-
-    photo.crop = clampCrop(cmd.before, photo.imageWidth, photo.imageHeight)
-    photo.layoutCrop = undefined
-    cropRedoStack.value.push(cmd)
-    autoLayout()
-  }
-
-  function redoCrop() {
-    const cmd = cropRedoStack.value.pop()
-    if (!cmd) return
-
-    const photo = photos.value.find(p => p.id === cmd.id)
-    if (!photo) return
-
-    photo.crop = clampCrop(cmd.after, photo.imageWidth, photo.imageHeight)
-    photo.layoutCrop = undefined
-    cropUndoStack.value.push(cmd)
-    autoLayout()
+    const after = snapshotCanvas()
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label,
+      kind: 'canvas',
+      before,
+      after,
+    })
   }
 
   function replacePhotoImage(
@@ -162,6 +429,58 @@ export const useMosaicStore = defineStore('mosaic', () => {
     photo.imageHeight = imageHeight
     photo.crop = clampCrop(crop, imageWidth, imageHeight)
     photo.layoutCrop = undefined
+  }
+
+  async function replacePhotoFromFile(id: string, file: File) {
+    const photo = photos.value.find(p => p.id === id)
+    if (!photo) return
+
+    const before = snapshotPhotoFull(photo)
+    const loaded = await createPhotoFromFile(file, canvasWidth.value, canvasHeight.value)
+
+    const effectiveCrop = photo.layoutCrop ?? photo.crop
+    const targetAspect = effectiveCrop.width / Math.max(1, effectiveCrop.height)
+    const fullCrop: CropRect = { x: 0, y: 0, width: loaded.imageWidth, height: loaded.imageHeight }
+    const nextCrop = centerCropToAspect(fullCrop, targetAspect, loaded.imageWidth, loaded.imageHeight)
+
+    const oldDrawW = effectiveCrop.width * photo.scale
+    const nextScale = clamp(oldDrawW / Math.max(1, nextCrop.width), 0.05, 3)
+
+    photo.name = file.name
+    photo.srcUrl = loaded.srcUrl
+    photo.image = loaded.image
+    photo.imageWidth = loaded.imageWidth
+    photo.imageHeight = loaded.imageHeight
+
+    if (photo.layoutCrop) {
+      photo.crop = fullCrop
+      photo.layoutCrop = nextCrop
+    } else {
+      photo.crop = nextCrop
+      photo.layoutCrop = undefined
+    }
+
+    photo.scale = nextScale
+    const clampedPos = clampPhotoToCanvas(photo, canvasWidth.value, canvasHeight.value)
+    photo.cx = clampedPos.cx
+    photo.cy = clampedPos.cy
+
+    const after = snapshotPhotoFull(photo)
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label: `替换照片：${before.name} → ${after.name}`,
+      kind: 'photoFull',
+      photoId: id,
+      before,
+      after,
+    })
+  }
+
+  function setPhotoAdjustments(id: string, next: PhotoAdjustments) {
+    const photo = photos.value.find(p => p.id === id)
+    if (!photo) return
+    photo.adjustments = snapshotAdjustments(next)
   }
 
   function setPreset(presetId: string) {
@@ -203,6 +522,40 @@ export const useMosaicStore = defineStore('mosaic', () => {
     }
   }
 
+  function bringToFrontWithHistory(id: string) {
+    const photo = photos.value.find(p => p.id === id)
+    if (!photo) return
+    const before = snapshotPhotoCore(photo)
+    bringToFront(id)
+    const after = snapshotPhotoCore(photo)
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label: '置顶',
+      kind: 'photo',
+      photoId: id,
+      before,
+      after,
+    })
+  }
+
+  function sendToBackWithHistory(id: string) {
+    const photo = photos.value.find(p => p.id === id)
+    if (!photo) return
+    const before = snapshotPhotoCore(photo)
+    sendToBack(id)
+    const after = snapshotPhotoCore(photo)
+    pushHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      at: Date.now(),
+      label: '置底',
+      kind: 'photo',
+      photoId: id,
+      before,
+      after,
+    })
+  }
+
   function setCropMode(id: string | null) {
     cropModePhotoId.value = id
   }
@@ -232,6 +585,7 @@ export const useMosaicStore = defineStore('mosaic', () => {
     photos.value = []
     selectedPhotoId.value = null
     cropModePhotoId.value = null
+    clearHistory()
   }
 
   function applyPlacements(placements: Placement[]) {
@@ -263,6 +617,7 @@ export const useMosaicStore = defineStore('mosaic', () => {
     exportResolution,
     isExporting,
     mode,
+    history,
 
     // Computed
     currentPreset,
@@ -270,23 +625,32 @@ export const useMosaicStore = defineStore('mosaic', () => {
     cropModePhoto,
     photoCount,
     sortedPhotos,
-    canUndoCrop,
-    canRedoCrop,
+    canUndo,
+    canRedo,
 
     // Actions
     addPhoto,
     removePhoto,
     updatePhoto,
+    updatePhotoWithHistory,
     replacePhotoImage,
     autoLayout,
+    autoLayoutWithHistory,
+    applyPlacementsWithHistory,
     applyCrop,
-    undoCrop,
-    redoCrop,
+    undo,
+    redo,
+    clearHistory,
+    pushPhotoHistoryFromPartials,
+    replacePhotoFromFile,
+    setPhotoAdjustments,
     setPreset,
     setCustomSize,
     selectPhoto,
     bringToFront,
     sendToBack,
+    bringToFrontWithHistory,
+    sendToBackWithHistory,
     setCropMode,
     setExporting,
     setExportFormat,

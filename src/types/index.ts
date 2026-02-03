@@ -18,6 +18,27 @@ export interface CropRect {
   height: number
 }
 
+export type FilterPreset = 'none' | 'blackWhite' | 'sepia' | 'vintage'
+
+export interface PhotoAdjustments {
+  /**
+   * 亮度：1 为原始
+   */
+  brightness: number
+  /**
+   * 对比度：1 为原始
+   */
+  contrast: number
+  /**
+   * 饱和度：1 为原始
+   */
+  saturation: number
+  /**
+   * 滤镜预设（会叠加在三项数值之上）
+   */
+  preset: FilterPreset
+}
+
 export interface PhotoEntity {
   id: string
   name: string
@@ -32,6 +53,10 @@ export interface PhotoEntity {
    * - 渲染/导出优先使用 layoutCrop
    */
   layoutCrop?: CropRect
+  /**
+   * 照片调色与滤镜
+   */
+  adjustments: PhotoAdjustments
   cx: number
   cy: number
   scale: number

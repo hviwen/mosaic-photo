@@ -4,6 +4,7 @@ import type { PhotoEntity, CanvasPreset, ExportFormat, ExportResolutionPreset, C
 import { fillArrangePhotos } from '@/composables/useLayout'
 import { clampPhotoToCanvas, clampCrop, clamp } from '@/utils/math'
 import { centerCropToAspect, createPhotoFromFile } from '@/utils/image'
+import { getSmartDetections, invalidateSmartDetections, onSmartDetectionsChanged, prefetchSmartDetections } from '@/utils/smartCrop'
 
 const PRESETS: CanvasPreset[] = [
   { id: '40x50', label: '40cm × 50cm', width: 4724, height: 5906 },
@@ -80,6 +81,18 @@ export const useMosaicStore = defineStore('mosaic', () => {
   const exportResolution = ref<ExportResolutionPreset>('original')
   const isExporting = ref<boolean>(false)
   const mode = ref<AppMode>({ kind: 'idle' })
+
+  // 智能裁剪检测结果到达后，尽可能只更新 layoutCrop（不改变位置/缩放），避免“跳动”
+  onSmartDetectionsChanged(photoId => {
+    if (mode.value.kind !== 'idle') return
+    const photo = photos.value.find(p => p.id === photoId)
+    if (!photo?.layoutCrop) return
+    const ta = photo.layoutCrop.width / Math.max(1, photo.layoutCrop.height)
+    const next = centerCropToAspect(photo.crop, ta, photo.imageWidth, photo.imageHeight, {
+      detections: getSmartDetections(photoId),
+    })
+    photo.layoutCrop = clampCrop(next, photo.imageWidth, photo.imageHeight)
+  })
 
   // 操作历史（撤销/重做）
   const historyUndoStack = ref<HistoryEntry[]>([])
@@ -299,6 +312,7 @@ export const useMosaicStore = defineStore('mosaic', () => {
     const index = photos.value.findIndex(p => p.id === id)
     if (index !== -1) {
       URL.revokeObjectURL(photos.value[index].srcUrl)
+      invalidateSmartDetections(id)
       photos.value.splice(index, 1)
       if (selectedPhotoId.value === id) selectedPhotoId.value = null
       if (cropModePhotoId.value === id) cropModePhotoId.value = null
@@ -424,11 +438,13 @@ export const useMosaicStore = defineStore('mosaic', () => {
   ) {
     const photo = photos.value.find(p => p.id === id)
     if (!photo) return
+    invalidateSmartDetections(id)
     photo.image = image
     photo.imageWidth = imageWidth
     photo.imageHeight = imageHeight
     photo.crop = clampCrop(crop, imageWidth, imageHeight)
     photo.layoutCrop = undefined
+    prefetchSmartDetections(id, image)
   }
 
   async function replacePhotoFromFile(id: string, file: File) {
@@ -436,12 +452,15 @@ export const useMosaicStore = defineStore('mosaic', () => {
     if (!photo) return
 
     const before = snapshotPhotoFull(photo)
-    const loaded = await createPhotoFromFile(file, canvasWidth.value, canvasHeight.value)
+    invalidateSmartDetections(id)
+    const loaded = await createPhotoFromFile(file, canvasWidth.value, canvasHeight.value, { id })
 
     const effectiveCrop = photo.layoutCrop ?? photo.crop
     const targetAspect = effectiveCrop.width / Math.max(1, effectiveCrop.height)
     const fullCrop: CropRect = { x: 0, y: 0, width: loaded.imageWidth, height: loaded.imageHeight }
-    const nextCrop = centerCropToAspect(fullCrop, targetAspect, loaded.imageWidth, loaded.imageHeight)
+    const nextCrop = centerCropToAspect(fullCrop, targetAspect, loaded.imageWidth, loaded.imageHeight, {
+      detections: getSmartDetections(id),
+    })
 
     const oldDrawW = effectiveCrop.width * photo.scale
     const nextScale = clamp(oldDrawW / Math.max(1, nextCrop.width), 0.05, 3)

@@ -67,6 +67,20 @@
         </v-card>
 
         <v-card variant="tonal" class="mb-4">
+          <v-card-title class="text-subtitle-2">原图缩略</v-card-title>
+          <v-card-text>
+            <v-img
+              :src="previewSrc"
+              :aspect-ratio="previewAspect"
+              height="180"
+              :cover="false"
+              class="rounded"
+            />
+            <div class="text-caption mt-2">保持宽高比等比缩放展示（不受裁剪/滤镜影响）</div>
+          </v-card-text>
+        </v-card>
+
+        <v-card variant="tonal" class="mb-4">
           <v-card-title class="text-subtitle-2">操作历史</v-card-title>
           <v-card-text>
             <div class="d-flex flex-wrap" style="gap: 0.5rem;">
@@ -306,6 +320,14 @@ const themeStore = useThemeStore()
 const ui = useUiStore()
 
 const selectedPhoto = computed(() => store.selectedPhoto)
+const previewSrc = computed(() => selectedPhoto.value?.srcUrl ?? '')
+const previewAspect = computed(() => {
+  const p = selectedPhoto.value
+  if (!p) return 1
+  const w = Math.max(1, p.imageWidth)
+  const h = Math.max(1, p.imageHeight)
+  return w / h
+})
 
 const scalePercent = computed(() => 
   selectedPhoto.value ? Math.round(selectedPhoto.value.scale * 100) : 0

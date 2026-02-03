@@ -1,5 +1,7 @@
 import type { PhotoEntity, CropRect, PhotoAdjustments } from '@/types'
 import { generateId } from './math'
+import type { SmartDetection } from '@/utils/smartCrop'
+import { calculateSmartCrop, prefetchSmartDetections } from '@/utils/smartCrop'
 
 const MAX_IMAGE_EDGE = 2048 // 限制图片最大边长以提升性能
 const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
@@ -15,8 +17,10 @@ const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
 export async function createPhotoFromFile(
   file: File,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
+  options?: { id?: string; prefetchSmartCrop?: boolean }
 ): Promise<PhotoEntity> {
+  const id = options?.id ?? generateId()
   const srcUrl = URL.createObjectURL(file)
   const img = await loadImage(srcUrl)
   const { canvas, width, height } = resizeImage(img, MAX_IMAGE_EDGE)
@@ -26,9 +30,9 @@ export async function createPhotoFromFile(
   // 计算初始缩放和位置
   const fit = Math.min(canvasWidth / width, canvasHeight / height) * 0.4
   const scale = Math.max(0.05, Math.min(3, fit))
-  
-  return {
-    id: generateId(),
+
+  const photo: PhotoEntity = {
+    id,
     name: file.name,
     srcUrl,
     image: canvas,
@@ -42,6 +46,13 @@ export async function createPhotoFromFile(
     rotation: 0,
     zIndex: 0,
   }
+
+  // 智能裁剪：在导入时预热检测（同步显著性 + 异步人脸）
+  if (options?.prefetchSmartCrop !== false) {
+    prefetchSmartDetections(id, canvas)
+  }
+
+  return photo
 }
 
 /**
@@ -89,8 +100,23 @@ export function centerCropToAspect(
   crop: CropRect,
   targetAspect: number,
   imageWidth: number,
-  imageHeight: number
+  imageHeight: number,
+  options?: { detections?: SmartDetection[] }
 ): CropRect {
+  const detections = options?.detections
+  if (detections && detections.length > 0) {
+    try {
+      return calculateSmartCrop(
+        { width: imageWidth, height: imageHeight },
+        targetAspect,
+        detections,
+        crop
+      )
+    } catch {
+      // 任何检测/计算异常都退回到原有居中裁剪逻辑
+    }
+  }
+
   if (!isFinite(targetAspect) || targetAspect <= 0) return crop
 
   let { x, y, width, height } = crop

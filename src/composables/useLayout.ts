@@ -1,5 +1,6 @@
 import type { PhotoEntity, ArrangeOptions, Placement } from '@/types'
 import { centerCropToAspect } from '@/utils/image'
+import { getSmartDetections } from '@/utils/smartCrop'
 import { 
   randomInRange, 
   degreesToRadians, 
@@ -349,7 +350,8 @@ export function fillArrangePhotos(
     }
 
     const p = photosLeft.splice(bestIdx, 1)[0]
-    const nextCrop = centerCropToAspect(p.crop, ta, p.imageWidth, p.imageHeight)
+    const detections = getSmartDetections(p.id)
+    const nextCrop = centerCropToAspect(p.crop, ta, p.imageWidth, p.imageHeight, { detections })
     const scale = tile.w / nextCrop.width
 
     placements.push({

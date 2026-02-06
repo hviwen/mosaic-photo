@@ -240,9 +240,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
-import { createPhotoFromFile, isValidImageFile } from '@/utils/image'
-import { createAssetId, putAsset } from '@/project/assets'
-import type { ProjectAssetMeta } from '@/project/schema'
+import { isValidImageFile } from '@/utils/image'
 import type { ExportFormat, ExportResolutionPreset } from '@/types'
 import PhotoList from './PhotoList.vue'
 
@@ -305,38 +303,22 @@ async function handleFiles(files: File[]) {
     return
   }
 
-  toast.info(`正在加载 ${validFiles.length} 张照片...`)
+  toast.info(`正在导入 ${validFiles.length} 张照片...`)
   isImporting.value = true
 
-  for (const file of validFiles) {
-    try {
-      const assetId = createAssetId()
-      const assetMeta: ProjectAssetMeta = {
-        id: assetId,
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        size: file.size,
-        lastModified: file.lastModified || Date.now(),
-      }
-      await putAsset(assetMeta, file)
-
-      const photo = await createPhotoFromFile(
-        file, 
-        store.canvasWidth, 
-        store.canvasHeight
-      )
-
-      photo.assetId = assetId
-      store.addPhoto(photo)
-    } catch (err) {
-      console.error('Failed to load photo:', err)
-      toast.error(`加载失败: ${file.name}`)
+  try {
+    const res = await store.importFiles(validFiles, {
+      concurrency: 3,
+    })
+    if (res.failed > 0) {
+      toast.warning(`已导入 ${res.added} 张，失败 ${res.failed} 张（可尝试重新选择失败文件）`)
+    } else {
+      toast.success(`已导入 ${res.added} 张照片，并完成自动排版`)
     }
+  } catch (err) {
+    console.error('Import failed:', err)
+    toast.error('导入失败，请重试')
   }
-
-  // 每次导入后自动排版（全量重排，避免重叠/集中/空白）
-  await store.autoLayoutAsync()
-  toast.success(`已添加 ${validFiles.length} 张照片，并完成自动排版`)
   isImporting.value = false
   selectedFiles.value = []
 }

@@ -1,14 +1,8 @@
 import type { CropRect } from '@/types'
+import type { KeepRegion, KeepRegionKind } from '@/types/vision'
 
-export type SmartDetectionKind = 'face' | 'object'
-
-export interface SmartDetection {
-  kind: SmartDetectionKind
-  box: CropRect
-  score: number
-  label?: string
-}
-
+export type SmartDetectionKind = KeepRegionKind
+export type SmartDetection = KeepRegion
 export type FaceDetection = SmartDetection & { kind: 'face' }
 
 export interface SmartCropConfig {
@@ -111,6 +105,18 @@ export function prefetchSmartDetections(photoId: string, source: CanvasImageSour
   void ensureFaces(photoId, source)
 }
 
+/**
+ * 将外部检测结果“种入”缓存（常用于 Web Worker 推理后回传的 keep-regions）。
+ * 坐标系：与 PhotoEntity.image（预览图）一致。
+ */
+export function seedSmartDetections(
+  photoId: string,
+  detections: KeepRegion[],
+  flags: { hasFaces: boolean; hasObjects: boolean }
+) {
+  mergeDetections(photoId, detections, flags)
+}
+
 async function ensureFaces(photoId: string, source: CanvasImageSource): Promise<FaceDetection[]> {
   const cached = detectionCache.get(photoId)
   if (cached?.hasFaces) return cached.detections.filter(d => d.kind === 'face') as FaceDetection[]
@@ -189,13 +195,13 @@ function clamp(num: number, min: number, max: number): number {
 }
 
 function resolveSourceSize(source: CanvasImageSource): Size | null {
-  if (source instanceof HTMLImageElement) {
+  if (typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement) {
     const w = source.naturalWidth || source.width
     const h = source.naturalHeight || source.height
     if (w > 0 && h > 0) return { width: w, height: h }
     return null
   }
-  if (source instanceof HTMLCanvasElement) {
+  if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
     if (source.width > 0 && source.height > 0) return { width: source.width, height: source.height }
     return null
   }
@@ -240,7 +246,16 @@ function withDeadline<T>(promise: Promise<T>, ms: number, fallback: T): Promise<
   if (!isFinite(ms) || ms <= 0) return Promise.resolve(fallback)
   return new Promise<T>(resolve => {
     let settled = false
-    const t = window.setTimeout(() => {
+    const setTimeoutFn = (globalThis as unknown as { setTimeout?: typeof setTimeout }).setTimeout
+    const clearTimeoutFn = (globalThis as unknown as { clearTimeout?: typeof clearTimeout }).clearTimeout
+    if (!setTimeoutFn || !clearTimeoutFn) {
+      promise
+        .then(v => resolve(v))
+        .catch(() => resolve(fallback))
+      return
+    }
+
+    const t = setTimeoutFn(() => {
       if (settled) return
       settled = true
       resolve(fallback)
@@ -250,13 +265,13 @@ function withDeadline<T>(promise: Promise<T>, ms: number, fallback: T): Promise<
       .then(v => {
         if (settled) return
         settled = true
-        window.clearTimeout(t)
+        clearTimeoutFn(t as any)
         resolve(v)
       })
       .catch(() => {
         if (settled) return
         settled = true
-        window.clearTimeout(t)
+        clearTimeoutFn(t as any)
         resolve(fallback)
       })
   })
@@ -506,9 +521,21 @@ function centerOfRect(rect: CropRect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
 }
 
-function pickImportantSubset(detections: SmartDetection[], base: CropRect): CropRect | null {
+function expandBox(box: CropRect, margin: number): CropRect {
+  if (!isFinite(margin) || margin <= 0) return { ...box }
+  const pad = margin * Math.min(box.width, box.height)
+  if (!isFinite(pad) || pad <= 0) return { ...box }
+  return {
+    x: box.x - pad,
+    y: box.y - pad,
+    width: box.width + pad * 2,
+    height: box.height + pad * 2,
+  }
+}
+
+function pickImportantSubset(detections: SmartDetection[], base: CropRect, imageArea: number): CropRect | null {
   const inBase = detections
-    .map(d => ({ ...d, box: intersect(d.box, base) }))
+    .map(d => ({ ...d, box: intersect(expandBox(d.box, 0.12), base) }))
     .filter((d): d is SmartDetection & { box: CropRect } => !!d.box)
 
   if (inBase.length === 0) return null
@@ -517,7 +544,9 @@ function pickImportantSubset(detections: SmartDetection[], base: CropRect): Crop
   const candidates = [...inBase]
     .map(d => {
       const area = d.box.width * d.box.height
-      const weight = clamp(d.score, 0, 1) * Math.sqrt(Math.max(1, area))
+      const ratio = Math.min(1, area / Math.max(1, imageArea))
+      const kindMultiplier = d.kind === 'face' ? 10 : 3
+      const weight = kindMultiplier * clamp(d.score, 0, 1) * Math.sqrt(Math.max(0, ratio))
       return { d, weight }
     })
     .sort((a, b) => b.weight - a.weight)
@@ -567,6 +596,7 @@ export function calculateSmartCrop(
 
   const imageWidth = Math.max(1, size.width)
   const imageHeight = Math.max(1, size.height)
+  const imageArea = imageWidth * imageHeight
 
   const full: CropRect = { x: 0, y: 0, width: imageWidth, height: imageHeight }
   const base = baseCrop ? clampCropToBounds(baseCrop, full) : full
@@ -589,7 +619,7 @@ export function calculateSmartCrop(
   const portraitToLandscape = imageHeight > imageWidth && targetAspect > 1 && hasFaces
 
   const focusCandidates = portraitToLandscape ? detections.filter(d => d.kind === 'face') : detections
-  const focus = pickImportantSubset(focusCandidates, base)
+  const focus = pickImportantSubset(focusCandidates, base, imageArea)
   if (!focus) return clampCropToBounds(maxFit, base)
 
   // 给 focus 增加 padding，避免贴边切脸/切主体（同时确保不会因 padding 过大而“必然切脸”）
@@ -654,19 +684,127 @@ export function calculateSmartCrop(
     y = clamp(focusCenter.y - cropH / 2, baseYMin, baseYMax)
   }
 
-  return { x, y, width: cropW, height: cropH }
+  return refineCropPosition(
+    { x, y, width: cropW, height: cropH },
+    base,
+    detections,
+    imageArea,
+    { searchRadius: 80, step: 20, lambda: 0.6 }
+  )
 }
 
 function resolveSizeFromImageLike(
   image: { width: number; height: number } | HTMLImageElement | HTMLCanvasElement
 ): Size {
-  if (image instanceof HTMLImageElement) {
+  if (typeof HTMLImageElement !== 'undefined' && image instanceof HTMLImageElement) {
     const width = image.naturalWidth || image.width
     const height = image.naturalHeight || image.height
     return { width: Math.max(1, width), height: Math.max(1, height) }
   }
-  if (image instanceof HTMLCanvasElement) {
+  if (typeof HTMLCanvasElement !== 'undefined' && image instanceof HTMLCanvasElement) {
     return { width: Math.max(1, image.width), height: Math.max(1, image.height) }
   }
   return { width: Math.max(1, image.width), height: Math.max(1, image.height) }
+}
+
+function rectArea(r: CropRect): number {
+  return Math.max(0, r.width) * Math.max(0, r.height)
+}
+
+function intersectArea(a: CropRect, b: CropRect): number {
+  const r = intersect(a, b)
+  return r ? rectArea(r) : 0
+}
+
+function refineCropPosition(
+  initial: CropRect,
+  base: CropRect,
+  detections: SmartDetection[],
+  imageArea: number,
+  opts: { searchRadius: number; step: number; lambda: number }
+): CropRect {
+  if (!detections || detections.length === 0) return clampCropToBounds(initial, base)
+  if (!isFinite(opts.searchRadius) || opts.searchRadius <= 0) return clampCropToBounds(initial, base)
+  if (!isFinite(opts.step) || opts.step <= 0) return clampCropToBounds(initial, base)
+
+  type WeightedBox = { box: CropRect; weight: number }
+  const weighted: WeightedBox[] = []
+
+  for (const d of detections) {
+    const safe = expandBox(d.box, 0.12)
+    const safeInBase = intersect(safe, base)
+    if (!safeInBase) continue
+
+    const area = rectArea(safeInBase)
+    const ratio = Math.min(1, area / Math.max(1, imageArea))
+    const kindMultiplier = d.kind === 'face' ? 10 : 3
+    const weight = kindMultiplier * clamp(d.score, 0, 1) * Math.sqrt(Math.max(0, ratio))
+    if (!isFinite(weight) || weight <= 0) continue
+
+    weighted.push({ box: safeInBase, weight })
+  }
+
+  if (weighted.length === 0) return clampCropToBounds(initial, base)
+
+  const baseXMin = base.x
+  const baseYMin = base.y
+  const baseXMax = base.x + base.width - initial.width
+  const baseYMax = base.y + base.height - initial.height
+
+  const clampX = (x: number) => clamp(x, baseXMin, baseXMax)
+  const clampY = (y: number) => clamp(y, baseYMin, baseYMax)
+
+  const searchRadius = Math.round(opts.searchRadius)
+  const step = Math.max(1, Math.round(opts.step))
+  const lambda = clamp(opts.lambda, 0, 2)
+
+  const evalScore = (crop: CropRect): number => {
+    let covSum = 0
+    let borderPenalty = 0
+
+    const win = crop
+    const norm = Math.max(1, Math.min(win.width, win.height) * 0.15)
+
+    for (const it of weighted) {
+      const box = it.box
+      const w = it.weight
+      const boxArea = rectArea(box)
+      if (boxArea <= 0) continue
+
+      const coverage = intersectArea(win, box) / boxArea
+      covSum += w * coverage
+
+      const left = box.x - win.x
+      const right = win.x + win.width - (box.x + box.width)
+      const top = box.y - win.y
+      const bottom = win.y + win.height - (box.y + box.height)
+      const minMargin = Math.min(left, right, top, bottom)
+      const p = clamp(1 - minMargin / norm, 0, 1)
+      borderPenalty += w * p
+    }
+
+    return covSum - lambda * borderPenalty
+  }
+
+  let best = clampCropToBounds(initial, base)
+  let bestScore = evalScore(best)
+
+  for (let dy = -searchRadius; dy <= searchRadius; dy += step) {
+    for (let dx = -searchRadius; dx <= searchRadius; dx += step) {
+      if (dx === 0 && dy === 0) continue
+      const cand: CropRect = {
+        x: clampX(initial.x + dx),
+        y: clampY(initial.y + dy),
+        width: initial.width,
+        height: initial.height,
+      }
+      const s = evalScore(cand)
+      if (s > bestScore) {
+        bestScore = s
+        best = cand
+      }
+    }
+  }
+
+  return best
 }

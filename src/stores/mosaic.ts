@@ -2,11 +2,12 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { PhotoEntity, CanvasPreset, ExportFormat, ExportResolutionPreset, CropRect, AppMode, Placement, PhotoAdjustments } from '@/types'
 import { fillArrangePhotos } from '@/composables/useLayout'
-import { clampPhotoToCanvas, clampCrop, clamp } from '@/utils/math'
+import { clampPhotoToCanvas, clampCrop, clamp, generateId } from '@/utils/math'
 import { centerCropToAspect, createPhotoFromFile } from '@/utils/image'
 import { createAssetId, putAsset } from '@/project/assets'
 import type { ProjectAssetMeta } from '@/project/schema'
-import { getSmartDetections, invalidateSmartDetections, onSmartDetectionsChanged, prefetchSmartDetections } from '@/utils/smartCrop'
+import { getSmartDetections, invalidateSmartDetections, onSmartDetectionsChanged, prefetchSmartDetections, seedSmartDetections } from '@/utils/smartCrop'
+import { getVisionClient } from '@/vision/visionClient'
 
 type LayoutWorkerFillArrangeOptions = {
   seed?: number
@@ -61,7 +62,7 @@ export const useMosaicStore = defineStore('mosaic', () => {
     name: string
     srcUrl: string
     assetId?: string
-    image: HTMLCanvasElement
+    image: CanvasImageSource
     sourceWidth?: number
     sourceHeight?: number
     imageWidth: number
@@ -119,6 +120,12 @@ export const useMosaicStore = defineStore('mosaic', () => {
       }
 
   const HISTORY_LIMIT = 80
+  const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
+    brightness: 1,
+    contrast: 1,
+    saturation: 1,
+    preset: 'none',
+  }
 
   // State
   const presets = ref<CanvasPreset[]>(PRESETS)
@@ -536,7 +543,22 @@ export const useMosaicStore = defineStore('mosaic', () => {
     const index = photos.value.findIndex(p => p.id === id)
     if (index !== -1) {
       const revokeUrl = opts?.revokeUrl !== false
-      if (revokeUrl) URL.revokeObjectURL(photos.value[index].srcUrl)
+      if (revokeUrl) {
+        try {
+          URL.revokeObjectURL(photos.value[index].srcUrl)
+        } catch {
+          // ignore
+        }
+        // 无历史记录时可以释放 bitmap 资源（避免内存上涨）
+        const img = photos.value[index].image as any
+        if (img && typeof img.close === 'function') {
+          try {
+            img.close()
+          } catch {
+            // ignore
+          }
+        }
+      }
       invalidateSmartDetections(id)
       photos.value.splice(index, 1)
       if (selectedPhotoId.value === id) selectedPhotoId.value = null
@@ -717,7 +739,7 @@ export const useMosaicStore = defineStore('mosaic', () => {
 
   function replacePhotoImage(
     id: string, 
-    image: HTMLCanvasElement, 
+    image: CanvasImageSource, 
     imageWidth: number, 
     imageHeight: number, 
     crop: CropRect
@@ -731,6 +753,121 @@ export const useMosaicStore = defineStore('mosaic', () => {
     photo.crop = clampCrop(crop, imageWidth, imageHeight)
     photo.layoutCrop = undefined
     prefetchSmartDetections(id, image)
+  }
+
+  async function importFiles(
+    files: File[],
+    opts?: {
+      concurrency?: number
+      onProgress?: (p: { done: number; total: number; label?: string }) => void
+    }
+  ): Promise<{ added: number; failed: number }> {
+    const total = files.length
+    if (total === 0) return { added: 0, failed: 0 }
+
+    const vision = getVisionClient()
+    const concurrency = clamp(opts?.concurrency ?? 3, 1, 4)
+
+    let done = 0
+    let added = 0
+    let failed = 0
+
+    const runOne = async (file: File) => {
+      const photoId = generateId()
+
+      // 先把原图落盘（用于工程导出/高清导出）
+      let assetId: string | null = null
+      try {
+        assetId = createAssetId()
+        const assetMeta: ProjectAssetMeta = {
+          id: assetId,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          lastModified: file.lastModified || Date.now(),
+        }
+        await putAsset(assetMeta, file)
+      } catch {
+        assetId = null
+      }
+
+      let photo: PhotoEntity | null = null
+
+      // 优先走 vision worker；失败则自动降级到主线程导入（native face + saliency）
+      if (vision.isEnabled()) {
+        try {
+          const res = await vision.processFile({ photoId, file })
+          const srcUrl = URL.createObjectURL(file)
+
+          const fullCrop: CropRect = { x: 0, y: 0, width: res.previewWidth, height: res.previewHeight }
+          const fit = Math.min(canvasWidth.value / res.previewWidth, canvasHeight.value / res.previewHeight) * 0.4
+          const scale = clamp(fit, 0.05, 3)
+
+          const hasFaces = res.detections.some(d => d.kind === 'face')
+          const hasObjects = res.detections.some(d => d.kind === 'object')
+          seedSmartDetections(photoId, res.detections, { hasFaces, hasObjects })
+
+          photo = {
+            id: photoId,
+            assetId: assetId ?? undefined,
+            name: file.name,
+            srcUrl,
+            image: res.previewBitmap,
+            sourceWidth: res.sourceWidth,
+            sourceHeight: res.sourceHeight,
+            imageWidth: res.previewWidth,
+            imageHeight: res.previewHeight,
+            crop: fullCrop,
+            adjustments: { ...DEFAULT_ADJUSTMENTS },
+            cx: canvasWidth.value / 2,
+            cy: canvasHeight.value / 2,
+            scale,
+            rotation: 0,
+            zIndex: 0,
+          }
+        } catch (e) {
+          console.warn('Vision 导入失败，自动降级到主线程：', file.name, e)
+          photo = null
+        }
+      }
+
+      if (!photo) {
+        try {
+          const fallback = await createPhotoFromFile(file, canvasWidth.value, canvasHeight.value, {
+            id: photoId,
+            prefetchSmartCrop: true,
+          })
+          fallback.assetId = assetId ?? undefined
+          photo = fallback
+        } catch (e) {
+          failed++
+          console.warn('Import failed:', file.name, e)
+          return
+        }
+      }
+
+      addPhoto(photo)
+      added++
+    }
+
+    const executing = new Set<Promise<void>>()
+    for (const f of files) {
+      const p = runOne(f).finally(() => {
+        executing.delete(p)
+        done++
+        opts?.onProgress?.({ done, total, label: f.name })
+      })
+      executing.add(p)
+      if (executing.size >= concurrency) {
+        await Promise.race(executing)
+      }
+    }
+
+    await Promise.all(executing)
+
+    // 导入完成后统一自动排版（全量重排，避免重叠/集中/空白）
+    await autoLayoutAsync()
+    return { added, failed }
   }
 
   async function replacePhotoFromFile(id: string, file: File) {
@@ -908,7 +1045,23 @@ export const useMosaicStore = defineStore('mosaic', () => {
   function clearAllPhotosInternal(opts?: { revokeUrls?: boolean; clearHistoryStacks?: boolean }) {
     const revokeUrls = opts?.revokeUrls !== false
     const clearHistoryStacks = opts?.clearHistoryStacks !== false
-    if (revokeUrls) photos.value.forEach(p => URL.revokeObjectURL(p.srcUrl))
+    if (revokeUrls) {
+      photos.value.forEach(p => {
+        try {
+          URL.revokeObjectURL(p.srcUrl)
+        } catch {
+          // ignore
+        }
+        const img = p.image as any
+        if (img && typeof img.close === 'function') {
+          try {
+            img.close()
+          } catch {
+            // ignore
+          }
+        }
+      })
+    }
     photos.value = []
     selectedPhotoId.value = null
     cropModePhotoId.value = null
@@ -994,6 +1147,7 @@ export const useMosaicStore = defineStore('mosaic', () => {
     clearHistory,
     pushPhotoHistoryFromPartials,
     replacePhotoFromFile,
+    importFiles,
     setPhotoAdjustments,
     setPreset,
     setCustomSize,

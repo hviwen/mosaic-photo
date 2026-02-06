@@ -48,7 +48,12 @@ export interface PhotoEntity {
   assetId?: string
   name: string
   srcUrl: string
-  image: HTMLCanvasElement
+  /**
+   * 预览渲染使用的图片源（通常为缩略图）。
+   * - 主线程导入：HTMLCanvasElement
+   * - vision worker：ImageBitmap
+   */
+  image: CanvasImageSource
   /** 原始图片像素尺寸（未缩放）。缺省时与 imageWidth/imageHeight 相同。 */
   sourceWidth?: number
   sourceHeight?: number

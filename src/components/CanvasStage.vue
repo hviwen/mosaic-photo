@@ -87,6 +87,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
+import { useThemeStore } from '@/stores/theme'
 import type { PhotoEntity, Handle, CropRect, Viewport } from '@/types'
 import { 
   clamp, 
@@ -100,6 +101,7 @@ import { buildCanvasFilter } from '@/utils/filters'
 
 const store = useMosaicStore()
 const toast = useToastStore()
+const themeStore = useThemeStore()
 
 const stageBody = ref<HTMLDivElement | null>(null)
 const canvasEl = ref<HTMLCanvasElement | null>(null)
@@ -132,6 +134,185 @@ const pointerMode = ref<PointerMode>({ kind: 'none' })
 const cropDraft = ref<CropRect | null>(null)
 const rafId = ref<number | null>(null)
 
+type CanvasColors = { bg: string; innerBg: string }
+const cachedColors = ref<CanvasColors | null>(null)
+const gridPatternCache = new WeakMap<CanvasRenderingContext2D, CanvasPattern>()
+
+type LayerCanvases = {
+  base: HTMLCanvasElement
+  baseCtx: CanvasRenderingContext2D
+  photos: HTMLCanvasElement
+  photosCtx: CanvasRenderingContext2D
+}
+
+const layers = ref<LayerCanvases | null>(null)
+const layerSizeKey = ref<string>('')
+const baseLayerDirty = ref(true)
+
+type PhotoLayerState = {
+  dirty: boolean
+  inProgress: boolean
+  index: number
+  version: number
+}
+const photoLayerState = ref<PhotoLayerState>({ dirty: true, inProgress: false, index: 0, version: 0 })
+
+const PROGRESSIVE_PHOTO_THRESHOLD = 180
+
+function readCanvasColors(): CanvasColors {
+  const rootStyles = window.getComputedStyle(document.documentElement)
+  const bg = rootStyles.getPropertyValue('--canvas-bg').trim() || '#1a1a2e'
+  const innerBg = rootStyles.getPropertyValue('--canvas-inner-bg').trim() || '#2a2a3e'
+  return { bg, innerBg }
+}
+
+function ensureCanvasColors(): CanvasColors {
+  if (!cachedColors.value) cachedColors.value = readCanvasColors()
+  return cachedColors.value
+}
+
+function ensureGridPattern(c: CanvasRenderingContext2D): CanvasPattern | null {
+  const existing = gridPatternCache.get(c)
+  if (existing) return existing
+
+  const gridSize = 100
+  const tile = document.createElement('canvas')
+  tile.width = gridSize
+  tile.height = gridSize
+
+  const tc = tile.getContext('2d')
+  if (!tc) return null
+
+  tc.clearRect(0, 0, gridSize, gridSize)
+  tc.strokeStyle = 'rgba(255, 255, 255, 0.03)'
+  tc.lineWidth = 1
+
+  // Crisp 1px lines in the tile's own coordinate space.
+  tc.beginPath()
+  tc.moveTo(0.5, 0)
+  tc.lineTo(0.5, gridSize)
+  tc.moveTo(0, 0.5)
+  tc.lineTo(gridSize, 0.5)
+  tc.stroke()
+
+  const pattern = c.createPattern(tile, 'repeat')
+  if (pattern) gridPatternCache.set(c, pattern)
+  return pattern
+}
+
+function ensureLayers(): LayerCanvases | null {
+  if (!canvasEl.value) return null
+  if (layers.value) return layers.value
+
+  const base = document.createElement('canvas')
+  const photos = document.createElement('canvas')
+  const baseCtx = base.getContext('2d')
+  const photosCtx = photos.getContext('2d')
+  if (!baseCtx || !photosCtx) return null
+
+  layers.value = { base, baseCtx, photos, photosCtx }
+  return layers.value
+}
+
+function invalidateBaseLayer() {
+  baseLayerDirty.value = true
+}
+
+function invalidatePhotoLayer() {
+  photoLayerState.value.dirty = true
+  photoLayerState.value.inProgress = false
+  photoLayerState.value.index = 0
+  photoLayerState.value.version++
+}
+
+function ensureLayerSizes() {
+  const l = ensureLayers()
+  if (!l || !canvasEl.value) return
+
+  const key = `${canvasEl.value.width}x${canvasEl.value.height}`
+  if (layerSizeKey.value === key) return
+  layerSizeKey.value = key
+
+  l.base.width = canvasEl.value.width
+  l.base.height = canvasEl.value.height
+  l.photos.width = canvasEl.value.width
+  l.photos.height = canvasEl.value.height
+
+  invalidateBaseLayer()
+  invalidatePhotoLayer()
+}
+
+function rebuildBaseLayer() {
+  const l = ensureLayers()
+  if (!l) return
+
+  const c = l.baseCtx
+  const { scale, offsetX, offsetY, dpr, cssWidth, cssHeight } = viewport.value
+  const { bg, innerBg } = ensureCanvasColors()
+
+  c.setTransform(dpr, 0, 0, dpr, 0, 0)
+  c.clearRect(0, 0, cssWidth, cssHeight)
+
+  c.fillStyle = bg
+  c.fillRect(0, 0, cssWidth, cssHeight)
+
+  c.save()
+  c.translate(offsetX, offsetY)
+  c.scale(scale, scale)
+
+  c.fillStyle = innerBg
+  c.fillRect(0, 0, store.canvasWidth, store.canvasHeight)
+  drawGrid(c)
+
+  c.restore()
+  baseLayerDirty.value = false
+}
+
+function renderPhotoLayerBatch() {
+  const l = ensureLayers()
+  if (!l) return
+
+  const state = photoLayerState.value
+  const { scale, offsetX, offsetY, dpr, cssWidth, cssHeight } = viewport.value
+  const list = store.sortedPhotos
+
+  if (state.dirty && !state.inProgress) {
+    // Fresh build.
+    const pc = l.photosCtx
+    pc.setTransform(dpr, 0, 0, dpr, 0, 0)
+    pc.clearRect(0, 0, cssWidth, cssHeight)
+    state.dirty = false
+    state.inProgress = true
+    state.index = 0
+  }
+
+  if (!state.inProgress) return
+
+  const startVersion = state.version
+  const pc = l.photosCtx
+  pc.setTransform(dpr, 0, 0, dpr, 0, 0)
+  pc.save()
+  pc.translate(offsetX, offsetY)
+  pc.scale(scale, scale)
+
+  const t0 = performance.now()
+  let i = state.index
+  while (i < list.length) {
+    // Abort if invalidated mid-frame.
+    if (photoLayerState.value.version !== startVersion) break
+    drawPhoto(pc, list[i])
+    i++
+    if (i - state.index >= 40) break
+    if (performance.now() - t0 > 8) break
+  }
+
+  pc.restore()
+  state.index = i
+  if (i >= list.length && photoLayerState.value.version === startVersion) {
+    state.inProgress = false
+  }
+}
+
 // 初始化
 onMounted(() => {
   if (!canvasEl.value) return
@@ -152,6 +333,18 @@ onMounted(() => {
     handleResize({ preserveScale: false })
   })
   window.addEventListener('keydown', handleKeyDown)
+
+  // Prewarm cached CSS-derived colors after the initial DOM paint.
+  nextTick(() => {
+    cachedColors.value = null
+    ensureCanvasColors()
+  })
+
+  // Ensure offscreen layers are ready after first sizing pass.
+  nextTick(() => {
+    ensureLayerSizes()
+  })
+
   requestRender()
 })
 
@@ -168,7 +361,12 @@ onUnmounted(() => {
 // 监听状态变化
 watch(
   () => [store.photos, store.selectedPhotoId, store.cropModePhotoId, store.canvasWidth, store.canvasHeight],
-  () => requestRender(),
+  () => {
+    // Photos/canvas changes should invalidate cached photo layer.
+    invalidatePhotoLayer()
+    if (store.canvasWidth || store.canvasHeight) invalidateBaseLayer()
+    requestRender()
+  },
   { deep: true }
 )
 
@@ -193,6 +391,18 @@ watch(
     }
     requestRender()
   }
+)
+
+watch(
+  () => themeStore.theme,
+  () => {
+    cachedColors.value = null
+    // Theme changes should rebuild base and photo layers.
+    invalidateBaseLayer()
+    invalidatePhotoLayer()
+    requestRender()
+  },
+  { flush: 'post' }
 )
 
 // 响应式调整大小
@@ -240,6 +450,9 @@ function handleResize(opts?: { preserveScale?: boolean } | UIEvent) {
     : computeFitViewport(cssWidth, cssHeight)
 
   viewport.value = { ...next, dpr, cssWidth, cssHeight }
+  ensureLayerSizes()
+  invalidateBaseLayer()
+  invalidatePhotoLayer()
   requestRender()
 }
 
@@ -252,6 +465,8 @@ function zoomIn() {
   autoFit.value = false
   viewport.value.scale = Math.min(viewport.value.scale * 1.2, 2)
   recenterViewport()
+  invalidateBaseLayer()
+  invalidatePhotoLayer()
   requestRender()
 }
 
@@ -259,6 +474,8 @@ function zoomOut() {
   autoFit.value = false
   viewport.value.scale = Math.max(viewport.value.scale / 1.2, 0.02)
   recenterViewport()
+  invalidateBaseLayer()
+  invalidatePhotoLayer()
   requestRender()
 }
 
@@ -273,6 +490,8 @@ function handleWheel(e: WheelEvent) {
   const delta = e.deltaY > 0 ? 0.9 : 1.1
   viewport.value.scale = clamp(viewport.value.scale * delta, 0.02, 2)
   recenterViewport()
+  invalidateBaseLayer()
+  invalidatePhotoLayer()
   requestRender()
 }
 
@@ -281,7 +500,7 @@ function screenToCanvas(screenX: number, screenY: number): { x: number; y: numbe
   const { scale, offsetX, offsetY } = viewport.value
   const rect = canvasEl.value?.getBoundingClientRect()
   if (!rect) return { x: 0, y: 0 }
-  
+
   const x = (screenX - rect.left - offsetX) / scale
   const y = (screenY - rect.top - offsetY) / scale
   return { x, y }
@@ -333,7 +552,7 @@ function handlePointerDown(e: PointerEvent) {
         }
         return
       }
-      
+
       if (pointInCropArea(photo, x, y)) {
         pointerMode.value = {
           kind: 'crop-move',
@@ -579,61 +798,76 @@ function draw() {
   
   const c = ctx.value
   const { scale, offsetX, offsetY, dpr, cssWidth, cssHeight } = viewport.value
+
+  ensureLayerSizes()
   
-  // 清空画布
+  // Base layer: background + canvas boundary + grid
+  if (baseLayerDirty.value) rebuildBaseLayer()
+
   c.setTransform(dpr, 0, 0, dpr, 0, 0)
   c.clearRect(0, 0, cssWidth, cssHeight)
-  
-  // 绘制背景
-  const rootStyles = window.getComputedStyle(document.documentElement)
-  const bg = rootStyles.getPropertyValue('--canvas-bg').trim() || '#1a1a2e'
-  const innerBg = rootStyles.getPropertyValue('--canvas-inner-bg').trim() || '#2a2a3e'
 
-  c.fillStyle = bg
-  c.fillRect(0, 0, cssWidth, cssHeight)
-  
-  // 应用视口变换
+  const l = ensureLayers()
+  if (l) {
+    c.drawImage(l.base, 0, 0, cssWidth, cssHeight)
+  }
+
+  const interactive = pointerMode.value.kind !== 'none' || Boolean(store.cropModePhotoId)
+  const shouldProgressive = !interactive && store.photoCount >= PROGRESSIVE_PHOTO_THRESHOLD
+
+  if (shouldProgressive && l) {
+    renderPhotoLayerBatch()
+    c.drawImage(l.photos, 0, 0, cssWidth, cssHeight)
+  } else {
+    // Immediate draw (interaction mode or small photo count)
+    c.save()
+    c.translate(offsetX, offsetY)
+    c.scale(scale, scale)
+    for (const photo of store.sortedPhotos) {
+      drawPhoto(c, photo)
+    }
+    c.restore()
+  }
+
+  // Overlays always drawn on top
   c.save()
   c.translate(offsetX, offsetY)
   c.scale(scale, scale)
-  
-  // 绘制画布边界
-  c.fillStyle = innerBg
-  c.fillRect(0, 0, store.canvasWidth, store.canvasHeight)
-  
-  // 绘制网格
-  drawGrid(c)
-  
-  // 绘制照片
-  for (const photo of store.sortedPhotos) {
-    drawPhoto(c, photo)
-  }
-  
-  // 绘制选中框
   if (store.selectedPhoto && !store.cropModePhotoId) {
     drawSelection(c, store.selectedPhoto)
   }
-  
-  // 绘制裁剪框
   if (store.cropModePhoto && cropDraft.value) {
     drawCropOverlay(c, store.cropModePhoto)
   }
-  
   c.restore()
+
+  if (shouldProgressive && photoLayerState.value.inProgress) {
+    requestRender()
+  }
 }
 
 function drawGrid(c: CanvasRenderingContext2D) {
+  const pattern = ensureGridPattern(c)
+  if (pattern) {
+    c.save()
+    c.fillStyle = pattern
+    c.fillRect(0, 0, store.canvasWidth, store.canvasHeight)
+    c.restore()
+    return
+  }
+
+  // Fallback: old per-line drawing (should be rare)
   const gridSize = 100
   c.strokeStyle = 'rgba(255, 255, 255, 0.03)'
   c.lineWidth = 1
-  
+
   for (let x = 0; x <= store.canvasWidth; x += gridSize) {
     c.beginPath()
     c.moveTo(x, 0)
     c.lineTo(x, store.canvasHeight)
     c.stroke()
   }
-  
+
   for (let y = 0; y <= store.canvasHeight; y += gridSize) {
     c.beginPath()
     c.moveTo(0, y)
@@ -646,7 +880,8 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
   c.save()
   c.translate(photo.cx, photo.cy)
   c.rotate(photo.rotation)
-  c.filter = buildCanvasFilter(photo.adjustments)
+  const f = buildCanvasFilter(photo.adjustments)
+  c.filter = f === 'none' ? 'none' : f
   
   const crop = store.cropModePhotoId === photo.id
     ? photo.crop

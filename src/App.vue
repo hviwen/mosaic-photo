@@ -6,6 +6,7 @@
       :rail="ui.leftSidebarCollapsed"
       :width="360"
       :rail-width="56"
+      class="app-drawer app-drawer--left"
     >
       <SidebarLeft />
     </v-navigation-drawer>
@@ -16,6 +17,7 @@
       :rail="ui.rightSidebarCollapsed"
       :width="340"
       :rail-width="56"
+      class="app-drawer app-drawer--right"
     >
       <SidebarRight />
     </v-navigation-drawer>

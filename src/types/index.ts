@@ -41,9 +41,17 @@ export interface PhotoAdjustments {
 
 export interface PhotoEntity {
   id: string
+  /**
+   * 原始图片资源引用（用于持久化与高清导出）。
+   * 预览渲染仍使用 image（缩略图 canvas）。
+   */
+  assetId?: string
   name: string
   srcUrl: string
   image: HTMLCanvasElement
+  /** 原始图片像素尺寸（未缩放）。缺省时与 imageWidth/imageHeight 相同。 */
+  sourceWidth?: number
+  sourceHeight?: number
   imageWidth: number
   imageHeight: number
   crop: CropRect

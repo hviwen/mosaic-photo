@@ -68,6 +68,41 @@
 
     <div v-else class="pa-4 flex-1-1 overflow-y-auto">
       <v-card variant="tonal" class="mb-4">
+        <v-card-title class="text-subtitle-2">工程</v-card-title>
+        <v-card-text>
+          <input
+            ref="projectInputEl"
+            type="file"
+            accept=".mosaicproj,application/octet-stream"
+            style="display: none;"
+            @change="handleProjectFileChange"
+          />
+
+          <div class="d-flex flex-wrap" style="gap: 0.5rem;">
+            <v-btn
+              size="small"
+              variant="outlined"
+              prepend-icon="mdi-import"
+              @click="openProjectPicker"
+            >
+              导入工程
+            </v-btn>
+            <v-btn
+              size="small"
+              variant="outlined"
+              prepend-icon="mdi-content-save"
+              :disabled="store.photoCount === 0"
+              @click="handleExportProject"
+            >
+              导出工程
+            </v-btn>
+          </div>
+
+          <div class="hint mt-2">工程文件包含布局、参数与原始图片资源。</div>
+        </v-card-text>
+      </v-card>
+
+      <v-card variant="tonal" class="mb-4">
         <v-card-title class="text-subtitle-2">上传照片</v-card-title>
         <v-card-text>
           <v-file-input
@@ -177,6 +212,23 @@
           >
             导出拼图
           </v-btn>
+
+          <v-progress-linear
+            v-if="store.isExporting && exportProgress"
+            class="mt-3"
+            :model-value="exportProgress.total ? (exportProgress.done / exportProgress.total) * 100 : 0"
+            height="8"
+            rounded
+          />
+          <div
+            v-if="store.isExporting && exportProgress"
+            class="hint mt-2 d-flex align-center justify-space-between"
+          >
+            <span>
+              {{ exportProgress.label || '处理中...' }}（{{ exportProgress.done }}/{{ exportProgress.total }}）
+            </span>
+            <v-btn size="small" variant="text" @click="cancelExport">取消</v-btn>
+          </div>
         </v-card-text>
       </v-card>
     </div>
@@ -189,6 +241,8 @@ import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
 import { createPhotoFromFile, isValidImageFile } from '@/utils/image'
+import { createAssetId, putAsset } from '@/project/assets'
+import type { ProjectAssetMeta } from '@/project/schema'
 import type { ExportFormat, ExportResolutionPreset } from '@/types'
 import PhotoList from './PhotoList.vue'
 
@@ -198,6 +252,9 @@ const ui = useUiStore()
 const isArranging = ref(false)
 const isImporting = ref(false)
 const selectedFiles = ref<File[]>([])
+const projectInputEl = ref<HTMLInputElement | null>(null)
+const exportProgress = ref<{ done: number; total: number; label?: string } | null>(null)
+const exportAbort = ref<AbortController | null>(null)
 
 const qualityPercent = computed(() => Math.round(store.exportQuality * 100))
 
@@ -253,11 +310,23 @@ async function handleFiles(files: File[]) {
 
   for (const file of validFiles) {
     try {
+      const assetId = createAssetId()
+      const assetMeta: ProjectAssetMeta = {
+        id: assetId,
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        lastModified: file.lastModified || Date.now(),
+      }
+      await putAsset(assetMeta, file)
+
       const photo = await createPhotoFromFile(
         file, 
         store.canvasWidth, 
         store.canvasHeight
       )
+
+      photo.assetId = assetId
       store.addPhoto(photo)
     } catch (err) {
       console.error('Failed to load photo:', err)
@@ -266,7 +335,7 @@ async function handleFiles(files: File[]) {
   }
 
   // 每次导入后自动排版（全量重排，避免重叠/集中/空白）
-  store.autoLayout()
+  await store.autoLayoutAsync()
   toast.success(`已添加 ${validFiles.length} 张照片，并完成自动排版`)
   isImporting.value = false
   selectedFiles.value = []
@@ -293,7 +362,7 @@ async function handleArrange() {
   await new Promise(resolve => setTimeout(resolve, 50))
 
   try {
-    store.autoLayoutWithHistory('自动排版')
+    await store.autoLayoutWithHistoryAsync('自动排版')
     toast.success('自动排列完成！')
   } catch (err) {
     console.error('Arrange failed:', err)
@@ -309,11 +378,19 @@ async function handleExport() {
   if (store.photoCount === 0) return
   
   store.setExporting(true)
+  exportProgress.value = { done: 0, total: store.photoCount, label: '准备中...' }
+  exportAbort.value = new AbortController()
   toast.info('正在生成高清拼图...')
 
   try {
-    const { exportMosaic } = await import('@/composables/useExport')
-    await exportMosaic(store)
+    const { exportMosaicWithOptions } = await import('@/composables/useExport')
+    await exportMosaicWithOptions(store, {
+      signal: exportAbort.value.signal,
+      qualityMode: 'original',
+      onProgress: (p) => {
+        exportProgress.value = { done: p.done, total: p.total, label: p.label }
+      },
+    })
     toast.success('导出成功！')
   } catch (err) {
     console.error('Export failed:', err)
@@ -321,12 +398,54 @@ async function handleExport() {
     toast.error(`导出失败：${msg}`)
   } finally {
     store.setExporting(false)
+    exportAbort.value = null
+    exportProgress.value = null
+  }
+}
+
+function cancelExport() {
+  exportAbort.value?.abort()
+}
+
+function openProjectPicker() {
+  projectInputEl.value?.click()
+}
+
+async function handleProjectFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  try {
+    toast.info('正在导入工程...')
+    const { importProjectFile } = await import('@/project/projectFile')
+    await importProjectFile({ file, store })
+    toast.success('工程导入成功')
+  } catch (err) {
+    console.error('Import project failed:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`导入失败：${msg}`)
+  }
+}
+
+async function handleExportProject() {
+  if (store.photoCount === 0) return
+  try {
+    toast.info('正在打包工程文件...')
+    const { exportProjectFile } = await import('@/project/projectFile')
+    await exportProjectFile({ store })
+    toast.success('工程文件已导出')
+  } catch (err) {
+    console.error('Export project failed:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    toast.error(`导出失败：${msg}`)
   }
 }
 
 function clearAll() {
   if (confirm('确定要清空所有照片吗？')) {
-    store.clearAllPhotos()
+    store.clearAllPhotosWithHistory('清空所有照片')
     toast.info('已清空所有照片')
   }
 }

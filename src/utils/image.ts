@@ -23,6 +23,8 @@ export async function createPhotoFromFile(
   const id = options?.id ?? generateId()
   const srcUrl = URL.createObjectURL(file)
   const img = await loadImage(srcUrl)
+  const sourceWidth = img.naturalWidth || img.width
+  const sourceHeight = img.naturalHeight || img.height
   const { canvas, width, height } = resizeImage(img, MAX_IMAGE_EDGE)
 
   const crop: CropRect = { x: 0, y: 0, width, height }
@@ -36,6 +38,8 @@ export async function createPhotoFromFile(
     name: file.name,
     srcUrl,
     image: canvas,
+    sourceWidth,
+    sourceHeight,
     imageWidth: width,
     imageHeight: height,
     crop,

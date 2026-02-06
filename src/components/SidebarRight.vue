@@ -544,7 +544,7 @@ watch(
 function deletePhoto() {
   if (!selectedPhoto.value) return
   if (confirm('确定要删除这张照片吗？')) {
-    store.removePhoto(selectedPhoto.value.id)
+    store.removePhotoWithHistory(selectedPhoto.value.id, `删除照片：${selectedPhoto.value.name}`)
   }
 }
 </script>

@@ -1,6 +1,7 @@
 import type { PhotoEntity, ExportFormat, ExportResolutionPreset } from '@/types'
 import { canvasToBlob, downloadBlob } from '@/utils/image'
 import { buildCanvasFilter } from '@/utils/filters'
+import { getAssetBlob } from '@/project/assets'
 
 interface ExportStore {
   canvasWidth: number
@@ -9,6 +10,43 @@ interface ExportStore {
   exportFormat: ExportFormat
   exportQuality: number
   exportResolution: ExportResolutionPreset
+}
+
+export interface ExportProgress {
+  done: number
+  total: number
+  label?: string
+}
+
+export interface ExportOptions {
+  signal?: AbortSignal
+  onProgress?: (p: ExportProgress) => void
+  /**
+   * original: 使用 assetId 对应原图资源进行绘制（更高清）
+   * preview: 使用内存中的缩略 canvas（更快、但清晰度受限）
+   */
+  qualityMode?: 'original' | 'preview'
+}
+
+async function blobToImageBitmap(blob: Blob): Promise<ImageBitmap | HTMLImageElement> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(blob)
+    } catch {
+      // fallthrough
+    }
+  }
+
+  const url = URL.createObjectURL(blob)
+  try {
+    const img = new Image()
+    img.decoding = 'async'
+    img.src = url
+    await img.decode()
+    return img
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 function resolveExportSize(
@@ -35,7 +73,12 @@ function resolveExportSize(
  * 导出拼图为图片
  */
 export async function exportMosaic(store: ExportStore): Promise<void> {
+  return await exportMosaicWithOptions(store, {})
+}
+
+export async function exportMosaicWithOptions(store: ExportStore, opts: ExportOptions): Promise<void> {
   const { canvasWidth, canvasHeight, sortedPhotos, exportFormat, exportQuality, exportResolution } = store
+  const qualityMode = opts.qualityMode ?? 'original'
 
   const { width: outW, height: outH, scale: outScale } = resolveExportSize(
     canvasWidth,
@@ -69,8 +112,14 @@ export async function exportMosaic(store: ExportStore): Promise<void> {
     ctx.fillRect(0, 0, outW, outH)
   }
 
+  const total = sortedPhotos.length
+  opts.onProgress?.({ done: 0, total, label: '准备导出...' })
+
   // 按 zIndex 顺序绘制所有照片
-  for (const photo of sortedPhotos) {
+  for (let i = 0; i < sortedPhotos.length; i++) {
+    if (opts.signal?.aborted) throw new Error('已取消导出')
+
+    const photo = sortedPhotos[i]
     if (!photo.image) {
       throw new Error(`照片数据不完整：${photo.name ?? photo.id}`)
     }
@@ -78,6 +127,26 @@ export async function exportMosaic(store: ExportStore): Promise<void> {
     const crop = photo.layoutCrop ?? photo.crop
     if (!crop || crop.width <= 0 || crop.height <= 0) {
       throw new Error(`裁剪数据不合法：${photo.name ?? photo.id}`)
+    }
+
+    opts.onProgress?.({ done: i, total, label: photo.name })
+
+    // Resolve source image (original asset preferred)
+    let source: CanvasImageSource = photo.image
+    let srcScaleX = 1
+    let srcScaleY = 1
+
+    if (qualityMode === 'original' && photo.assetId) {
+      const blob = await getAssetBlob(photo.assetId)
+      if (blob) {
+        const bmpOrImg = await blobToImageBitmap(blob)
+        source = bmpOrImg as any
+
+        const sw = photo.sourceWidth ?? photo.imageWidth
+        const sh = photo.sourceHeight ?? photo.imageHeight
+        srcScaleX = sw / Math.max(1, photo.imageWidth)
+        srcScaleY = sh / Math.max(1, photo.imageHeight)
+      }
     }
 
     ctx.save()
@@ -88,12 +157,17 @@ export async function exportMosaic(store: ExportStore): Promise<void> {
     const hw = (crop.width * photo.scale * outScale) / 2
     const hh = (crop.height * photo.scale * outScale) / 2
 
+    const sx = crop.x * srcScaleX
+    const sy = crop.y * srcScaleY
+    const sWidth = crop.width * srcScaleX
+    const sHeight = crop.height * srcScaleY
+
     ctx.drawImage(
-      photo.image,
-      crop.x,
-      crop.y,
-      crop.width,
-      crop.height,
+      source,
+      sx,
+      sy,
+      sWidth,
+      sHeight,
       -hw,
       -hh,
       hw * 2,
@@ -101,7 +175,18 @@ export async function exportMosaic(store: ExportStore): Promise<void> {
     )
 
     ctx.restore()
+
+    // Free bitmap resources when possible
+    if (typeof (source as any)?.close === 'function') {
+      try {
+        ;(source as any).close()
+      } catch {
+        // ignore
+      }
+    }
   }
+
+  opts.onProgress?.({ done: total, total, label: '编码中...' })
 
   // 转换为 Blob 并下载
   let blob: Blob

@@ -17,6 +17,19 @@
   --input-bg: rgba(2, 6, 23, 0.4);
   --canvas-bg: #0b1020;
   --canvas-inner-bg: #0f172a;
+
+  /* Glassmorphism design system (dark) */
+  --glass-blur: 14px;
+  --glass-radius: 16px;
+  --glass-bg: rgba(2, 6, 23, 0.52);
+  --glass-bg-weak: rgba(15, 23, 42, 0.35);
+  --glass-bg-strong: rgba(2, 6, 23, 0.66);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-border-strong: rgba(255, 255, 255, 0.22);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+  --glass-shadow-sm: 0 8px 20px rgba(0, 0, 0, 0.28);
+  --glass-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+  --focus-ring: rgba(59, 130, 246, 0.45);
 }
 
 html[data-theme="light"] {
@@ -30,6 +43,19 @@ html[data-theme="light"] {
   --input-bg: rgba(255, 255, 255, 0.9);
   --canvas-bg: #f1f5f9;
   --canvas-inner-bg: #ffffff;
+
+  /* Glassmorphism design system (light) */
+  --glass-blur: 14px;
+  --glass-radius: 16px;
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-weak: rgba(255, 255, 255, 0.48);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(15, 23, 42, 0.12);
+  --glass-border-strong: rgba(15, 23, 42, 0.18);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+  --glass-shadow-sm: 0 10px 24px rgba(15, 23, 42, 0.12);
+  --glass-shadow: 0 22px 46px rgba(15, 23, 42, 0.16);
+  --focus-ring: rgba(59, 130, 246, 0.35);
 }
 
 html,
@@ -46,7 +72,128 @@ body {
   transition: background-color 250ms ease, color 250ms ease;
 }
 
+/* Accessibility: consistent focus ring */
+:where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root {
+    --glass-blur: 0px;
+  }
+}
+
 @layer components {
+  /* Glass surfaces */
+  .glass-surface {
+    @apply relative overflow-hidden;
+    border-radius: var(--glass-radius);
+    background-color: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+    transition: transform 180ms ease, box-shadow 250ms ease, border-color 250ms ease,
+      background-color 250ms ease;
+  }
+
+  .glass-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(135deg, var(--glass-highlight), transparent 55%);
+    opacity: 0.9;
+  }
+
+  .glass-surface--strong {
+    background-color: var(--glass-bg-strong);
+  }
+
+  .glass-surface--weak {
+    background-color: var(--glass-bg-weak);
+  }
+
+  @media (hover: hover) {
+    .glass-surface--interactive:hover {
+      border-color: var(--glass-border-strong);
+      box-shadow: var(--glass-shadow);
+      transform: translateY(-1px);
+    }
+  }
+
+  /* Vuetify drawers (left/right sidebars) */
+  .app-drawer.v-navigation-drawer {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  .app-drawer .v-navigation-drawer__content {
+    @apply h-full;
+    background-color: var(--glass-bg-strong) !important;
+    border-color: var(--glass-border);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+  }
+
+  .app-drawer--left .v-navigation-drawer__content {
+    border-right: 1px solid var(--glass-border);
+  }
+
+  .app-drawer--right .v-navigation-drawer__content {
+    border-left: 1px solid var(--glass-border);
+  }
+
+  .app-drawer .v-toolbar {
+    background: transparent;
+  }
+
+  .app-drawer .v-divider {
+    opacity: 1;
+    border-color: var(--glass-border);
+  }
+
+  /* Vuetify cards/alerts inside drawers -> glassy containers */
+  .app-drawer .v-card,
+  .app-drawer .v-alert {
+    border-radius: var(--glass-radius);
+    background-color: var(--glass-bg-weak) !important;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+  }
+
+  @media (hover: hover) {
+    .app-drawer .v-card:hover {
+      border-color: var(--glass-border-strong);
+      box-shadow: var(--glass-shadow);
+    }
+  }
+
+  /* Vuetify buttons: smoother + clearer hover */
+  .v-btn {
+    transition: transform 180ms ease, background-color 250ms ease, box-shadow 250ms ease,
+      color 250ms ease, border-color 250ms ease;
+  }
+
+  .v-btn--disabled {
+    transform: none;
+  }
+
+  @media (hover: hover) {
+    .v-btn--variant-text:hover:not(.v-btn--disabled),
+    .v-btn--variant-tonal:hover:not(.v-btn--disabled) {
+      background-color: color-mix(in srgb, var(--glass-bg-weak) 65%, transparent);
+    }
+
+    .v-btn--variant-outlined:hover:not(.v-btn--disabled) {
+      border-color: var(--glass-border-strong);
+      background-color: color-mix(in srgb, var(--glass-bg-weak) 45%, transparent);
+    }
+  }
+
   .app-layout {
     @apply grid h-screen;
     grid-template-columns: 280px 1fr 320px;
@@ -82,17 +229,33 @@ body {
   }
 
   .panel-section {
-    @apply mb-4 rounded-xl border border-white/10 bg-slate-900/30 p-4;
-    background-color: var(--panel-bg);
-    border-color: var(--border-subtle);
+    @apply mb-4 p-4;
+    border-radius: var(--glass-radius);
+    background-color: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+    transition: transform 180ms ease, box-shadow 250ms ease, border-color 250ms ease,
+      background-color 250ms ease;
+  }
+
+  @media (hover: hover) {
+    .panel-section:hover {
+      border-color: var(--glass-border-strong);
+      box-shadow: var(--glass-shadow);
+      transform: translateY(-1px);
+    }
   }
 
   .panel-section__title {
-    @apply mb-3 flex items-center gap-2 text-sm font-semibold text-slate-100;
+    @apply mb-3 flex items-center gap-2 text-sm font-semibold;
+    color: var(--app-fg);
   }
 
   .panel-section__title svg {
-    @apply h-4 w-4 text-slate-300;
+    @apply h-4 w-4;
+    color: color-mix(in srgb, var(--app-fg) 78%, transparent);
   }
 
   .panel-section__content {
@@ -170,7 +333,17 @@ body {
   }
 
   .btn--secondary {
-    @apply bg-white/10 text-slate-100 hover:bg-white/15;
+    @apply text-slate-100;
+    background-color: color-mix(in srgb, var(--glass-bg-weak) 70%, transparent);
+    border: 1px solid var(--glass-border);
+  }
+
+  @media (hover: hover) {
+    .btn--secondary:hover:not(:disabled) {
+      border-color: var(--glass-border-strong);
+      background-color: color-mix(in srgb, var(--glass-bg-weak) 85%, transparent);
+      box-shadow: var(--glass-shadow-sm);
+    }
   }
 
   .btn--success {
@@ -182,11 +355,24 @@ body {
   }
 
   .btn--ghost {
-    @apply bg-transparent text-slate-300 hover:bg-white/10;
+    @apply text-slate-300;
+    background-color: transparent;
+    border: 1px solid transparent;
+  }
+
+  @media (hover: hover) {
+    .btn--ghost:hover:not(:disabled) {
+      background-color: color-mix(in srgb, var(--glass-bg-weak) 55%, transparent);
+      border-color: var(--glass-border);
+    }
   }
 
   html[data-theme="light"] .btn--ghost {
     @apply text-slate-700 hover:bg-slate-900/10;
+  }
+
+  html[data-theme="light"] .btn--secondary {
+    @apply text-slate-900;
   }
 
   .drop-zone {
@@ -240,8 +426,10 @@ body {
 
   .toast {
     @apply flex max-w-sm items-center gap-3 rounded-xl border border-white/10 bg-slate-900/95 px-4 py-3 shadow-xl;
-    background-color: var(--panel-bg-strong);
-    border-color: var(--border-subtle);
+    background-color: var(--glass-bg-strong);
+    border-color: var(--glass-border);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
   }
 
   .toast__message {
@@ -274,8 +462,10 @@ body {
 
   .canvas-stage__header {
     @apply flex items-center justify-between gap-3 border-b px-4 py-3;
-    border-color: var(--border-subtle);
-    background-color: color-mix(in srgb, var(--panel-bg-strong) 70%, transparent);
+    border-color: var(--glass-border);
+    background-color: color-mix(in srgb, var(--glass-bg-strong) 72%, transparent);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
   }
 
   .canvas-stage__title {
@@ -301,5 +491,6 @@ body {
   .canvas-stage__body canvas {
     @apply block h-full w-full rounded-xl shadow-xl;
     background: var(--canvas-inner-bg);
+    border: 1px solid var(--glass-border);
   }
 }

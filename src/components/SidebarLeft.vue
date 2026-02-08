@@ -108,7 +108,7 @@
           <v-file-input
             v-model="selectedFiles"
             multiple
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.HEIC,.heif,.HEIF"
             label="选择照片"
             prepend-icon="mdi-image-multiple"
             chips
@@ -299,7 +299,7 @@ function handleQualitySelect(v: unknown) {
 async function handleFiles(files: File[]) {
   const validFiles = files.filter(isValidImageFile)
   if (validFiles.length === 0) {
-    toast.warning('请选择有效的图片文件 (JPEG, PNG, WebP)')
+    toast.warning('请选择有效的图片文件（JPEG、PNG、WebP、GIF、HEIC）')
     return
   }
 
@@ -307,9 +307,13 @@ async function handleFiles(files: File[]) {
   isImporting.value = true
 
   try {
-    const res = await store.importFiles(validFiles, {
+    const res = await store.addPhotos(validFiles, {
       concurrency: 3,
     })
+    if (res.truncated > 0) {
+      // 统一提示文案：超过上限时仅保留前 150 张。
+      toast.warning('最多支持导入 150 张照片，已自动选择前 150 张')
+    }
     if (res.failed > 0) {
       toast.warning(`已导入 ${res.added} 张，失败 ${res.failed} 张（可尝试重新选择失败文件）`)
     } else {

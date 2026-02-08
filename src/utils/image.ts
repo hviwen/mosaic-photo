@@ -4,11 +4,30 @@ import type { SmartDetection } from '@/utils/smartCrop'
 import { calculateSmartCrop, prefetchSmartDetections } from '@/utils/smartCrop'
 
 const MAX_IMAGE_EDGE = 2048 // 限制图片最大边长以提升性能
+const SUPPORTED_IMAGE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+  'image/heic-sequence',
+  'image/heif-sequence',
+]
+const SUPPORTED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif']
 const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
   brightness: 1,
   contrast: 1,
   saturation: 1,
   preset: 'none',
+}
+
+type DecodedImageSource = {
+  srcUrl: string
+  image: CanvasImageSource
+  sourceWidth: number
+  sourceHeight: number
+  cleanup?: () => void
 }
 
 /**
@@ -21,11 +40,18 @@ export async function createPhotoFromFile(
   options?: { id?: string; prefetchSmartCrop?: boolean }
 ): Promise<PhotoEntity> {
   const id = options?.id ?? generateId()
-  const srcUrl = URL.createObjectURL(file)
-  const img = await loadImage(srcUrl)
-  const sourceWidth = img.naturalWidth || img.width
-  const sourceHeight = img.naturalHeight || img.height
-  const { canvas, width, height } = resizeImage(img, MAX_IMAGE_EDGE)
+  const decoded = await decodeImageFile(file)
+  let width = 0
+  let height = 0
+  let canvas!: HTMLCanvasElement
+  try {
+    const resized = resizeImage(decoded.image, MAX_IMAGE_EDGE)
+    canvas = resized.canvas
+    width = resized.width
+    height = resized.height
+  } finally {
+    decoded.cleanup?.()
+  }
 
   const crop: CropRect = { x: 0, y: 0, width, height }
   
@@ -36,10 +62,10 @@ export async function createPhotoFromFile(
   const photo: PhotoEntity = {
     id,
     name: file.name,
-    srcUrl,
+    srcUrl: decoded.srcUrl,
     image: canvas,
-    sourceWidth,
-    sourceHeight,
+    sourceWidth: decoded.sourceWidth,
+    sourceHeight: decoded.sourceHeight,
     imageWidth: width,
     imageHeight: height,
     crop,
@@ -60,6 +86,78 @@ export async function createPhotoFromFile(
 }
 
 /**
+ * 兼容 HEIC/HEIF 的图片解码：
+ * - 优先尝试 createImageBitmap（异步解码，批量导入时更不易阻塞 UI）
+ * - 失败后回退到 <img> 方式（用于浏览器原生可显示 HEIC 的场景）
+ */
+async function decodeImageFile(file: File): Promise<DecodedImageSource> {
+  const isHeic = isHeicFile(file)
+  if (!isHeic) {
+    const srcUrl = URL.createObjectURL(file)
+    const img = await loadImage(srcUrl)
+    return {
+      srcUrl,
+      image: img,
+      sourceWidth: img.naturalWidth || img.width,
+      sourceHeight: img.naturalHeight || img.height,
+    }
+  }
+
+  // HEIC 优先异步解码并转成可预览 URL，避免某些浏览器 <img> 无法直接显示 .heic
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file)
+      let srcUrl: string
+      try {
+        srcUrl = await createPreviewUrlFromSource(bitmap, bitmap.width, bitmap.height)
+      } catch {
+        // ignore: 预览 URL 失败时仍允许继续导入
+        srcUrl = URL.createObjectURL(file)
+      }
+      return {
+        srcUrl,
+        image: bitmap,
+        sourceWidth: bitmap.width,
+        sourceHeight: bitmap.height,
+        cleanup: () => {
+          try {
+            bitmap.close()
+          } catch {
+            // ignore
+          }
+        },
+      }
+    } catch {
+      // ignore and fallback
+    }
+  }
+
+  const srcUrl = URL.createObjectURL(file)
+  const img = await loadImage(srcUrl)
+  return {
+    srcUrl,
+    image: img,
+    sourceWidth: img.naturalWidth || img.width,
+    sourceHeight: img.naturalHeight || img.height,
+  }
+}
+
+async function createPreviewUrlFromSource(
+  source: CanvasImageSource,
+  width: number,
+  height: number
+): Promise<string> {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(width))
+  canvas.height = Math.max(1, Math.round(height))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Failed to create canvas context')
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
+  const blob = await canvasToBlob(canvas, 'jpeg', 0.92)
+  return URL.createObjectURL(blob)
+}
+
+/**
  * 加载图片
  */
 export function loadImage(src: string): Promise<HTMLImageElement> {
@@ -75,10 +173,10 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
  * 调整图片大小
  */
 export function resizeImage(
-  img: HTMLImageElement,
+  img: CanvasImageSource,
   maxEdge: number
 ): { canvas: HTMLCanvasElement; width: number; height: number } {
-  let { width, height } = img
+  let { width, height } = resolveImageSize(img)
 
   if (width > maxEdge || height > maxEdge) {
     const ratio = Math.min(maxEdge / width, maxEdge / height)
@@ -93,6 +191,25 @@ export function resizeImage(
   ctx.drawImage(img, 0, 0, width, height)
 
   return { canvas, width, height }
+}
+
+function resolveImageSize(img: CanvasImageSource): { width: number; height: number } {
+  if (typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement) {
+    return { width: img.naturalWidth || img.width, height: img.naturalHeight || img.height }
+  }
+  if (typeof HTMLCanvasElement !== 'undefined' && img instanceof HTMLCanvasElement) {
+    return { width: img.width, height: img.height }
+  }
+  if (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) {
+    return { width: img.width, height: img.height }
+  }
+  const size = img as unknown as { width?: number; height?: number }
+  const width = Number(size.width ?? 0)
+  const height = Number(size.height ?? 0)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('Unsupported image source')
+  }
+  return { width, height }
 }
 
 /**
@@ -162,12 +279,21 @@ export function getFileExtension(filename: string): string {
   return parts.length > 1 ? parts.pop()!.toLowerCase() : ''
 }
 
+export function isHeicFile(file: File): boolean {
+  const type = String(file.type || '').toLowerCase()
+  if (type.includes('heic') || type.includes('heif')) return true
+  const ext = getFileExtension(file.name)
+  return ext === 'heic' || ext === 'heif'
+}
+
 /**
  * 验证是否为支持的图片格式
  */
 export function isValidImageFile(file: File): boolean {
-  const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-  return validTypes.includes(file.type)
+  const type = String(file.type || '').toLowerCase()
+  if (type && SUPPORTED_IMAGE_TYPES.includes(type)) return true
+  const ext = getFileExtension(file.name)
+  return SUPPORTED_IMAGE_EXTENSIONS.includes(ext)
 }
 
 /**

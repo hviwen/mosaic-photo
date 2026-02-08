@@ -23,7 +23,7 @@
       ref="fileInput"
       type="file" 
       multiple 
-      accept="image/jpeg,image/png,image/webp,image/gif"
+      accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.HEIC,.heif,.HEIF"
       @click.stop
       @change="handleFileSelect"
     />

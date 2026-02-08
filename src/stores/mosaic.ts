@@ -14,6 +14,7 @@ import { fillArrangePhotos } from "@/composables/useLayout";
 import { clampPhotoToCanvas, clampCrop, clamp, generateId } from "@/utils/math";
 import {
   centerCropToAspect,
+  createPreviewUrlFromImageSource,
   createPhotoFromFile,
   isHeicFile,
 } from "@/utils/image";
@@ -957,7 +958,16 @@ export const useMosaicStore = defineStore("mosaic", () => {
     if (total === 0) return { added: 0, failed: 0, truncated };
 
     const vision = getVisionClient();
-    const concurrency = clamp(opts?.concurrency ?? 3, 1, 4);
+    const expectedTotalAfterImport = photos.value.length + total;
+    const previewMaxEdge =
+      expectedTotalAfterImport >= 120
+        ? 1024
+        : expectedTotalAfterImport >= 96
+          ? 1152
+          : 1536;
+    const desiredConcurrency =
+      expectedTotalAfterImport >= 120 ? 2 : (opts?.concurrency ?? 3);
+    const concurrency = clamp(desiredConcurrency, 1, 4);
 
     let done = 0;
     let added = 0;
@@ -985,12 +995,21 @@ export const useMosaicStore = defineStore("mosaic", () => {
       let photo: PhotoEntity | null = null;
 
       // 优先走 vision worker；失败则自动降级到主线程导入（native face + saliency）
-      // HEIC 优先走主线程解码链路（兼容 createImageBitmap / 浏览器原生显示兜底）
-      if (vision.isEnabled() && !isHeicFile(file)) {
+      if (vision.isEnabled()) {
         try {
           console.log("[FaceDebug] Using vision worker for photo:", photoId);
-          const res = await vision.processFile({ photoId, file });
-          const srcUrl = URL.createObjectURL(file);
+          const res = await vision.processFile({
+            photoId,
+            file,
+            previewMaxEdge,
+          });
+          const srcUrl = isHeicFile(file)
+            ? await createPreviewUrlFromImageSource(
+                res.previewBitmap,
+                res.previewWidth,
+                res.previewHeight,
+              ).catch(() => URL.createObjectURL(file))
+            : URL.createObjectURL(file);
 
           const fullCrop: CropRect = {
             x: 0,
@@ -1048,7 +1067,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
         }
       } else {
         console.log(
-          "[FaceDebug] Vision worker disabled or HEIC file, using main thread for:",
+          "[FaceDebug] Vision worker disabled, using main thread for:",
           photoId,
         );
       }
@@ -1062,6 +1081,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
             {
               id: photoId,
               prefetchSmartCrop: true,
+              maxImageEdge: previewMaxEdge,
             },
           );
           fallback.assetId = assetId ?? undefined;

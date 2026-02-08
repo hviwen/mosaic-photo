@@ -275,6 +275,27 @@
                 取消
               </v-btn>
             </div>
+            <div v-if="isSelectedInCropMode" class="d-flex mt-2" style="gap: 0.5rem">
+              <v-btn
+                block
+                size="small"
+                variant="outlined"
+                prepend-icon="mdi-magnify-minus-outline"
+                @click="zoomCropOut">
+                缩小
+              </v-btn>
+              <v-btn
+                block
+                size="small"
+                variant="outlined"
+                prepend-icon="mdi-magnify-plus-outline"
+                @click="zoomCropIn">
+                放大
+              </v-btn>
+            </div>
+            <div v-if="isSelectedInCropMode" class="text-caption mt-2">
+              支持 Shift + 鼠标滚轮缩放
+            </div>
           </v-card-text>
         </v-card>
 
@@ -389,6 +410,8 @@ const originPreviewRaf = ref<number | null>(null);
 const originPreviewResizeObserver = ref<ResizeObserver | null>(null);
 const CROP_CONFIRM_EVENT = "mosaic:crop-confirm";
 const CROP_CANCEL_EVENT = "mosaic:crop-cancel";
+const CROP_ZOOM_IN_EVENT = "mosaic:crop-zoom-in";
+const CROP_ZOOM_OUT_EVENT = "mosaic:crop-zoom-out";
 
 const selectedPhoto = computed(() => store.selectedPhoto);
 const detectionTick = ref(0);
@@ -566,7 +589,7 @@ function sendToBack() {
 function enterCropMode() {
   if (!selectedPhoto.value) return;
   store.enterCropMode(selectedPhoto.value.id);
-  toast.info("裁剪模式：拖动调整裁剪区域，按 Enter 确认，Esc 取消");
+  toast.info("裁剪模式：拖动调整裁剪区域，Shift + 滚轮缩放，Enter 确认，Esc 取消");
 }
 
 function confirmCrop() {
@@ -575,6 +598,14 @@ function confirmCrop() {
 
 function cancelCrop() {
   window.dispatchEvent(new Event(CROP_CANCEL_EVENT));
+}
+
+function zoomCropIn() {
+  window.dispatchEvent(new Event(CROP_ZOOM_IN_EVENT));
+}
+
+function zoomCropOut() {
+  window.dispatchEvent(new Event(CROP_ZOOM_OUT_EVENT));
 }
 
 function scheduleTransformCommit() {

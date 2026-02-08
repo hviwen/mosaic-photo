@@ -88,15 +88,15 @@ describe("calculateSmartCrop", () => {
     expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
   });
 
-  // 优化1：正方形图片不受比例限制
-  it("正方形图片不受额外比例限制", () => {
+  // 优化1：正方形图片同样受 4:6 ~ 6:4 的全局比例限制
+  it("正方形图片也限制在 4:6 ~ 6:4 范围内", () => {
     const image = { width: 1000, height: 1000 }; // 正方形
     const targetAspect = 2.0;
 
     const crop = calculateSmartCrop(image, targetAspect, []);
-    // 正方形既不是竖图也不是横图，不受限制，使用原始 targetAspect
     const actual = crop.width / crop.height;
-    expect(approx(actual, targetAspect, 0.05)).toBe(true);
+    expect(actual).toBeLessThanOrEqual(1.5 + 1e-2);
+    expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
   });
 
   // 优化1：人脸最小尺寸保证 100×100

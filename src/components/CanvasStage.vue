@@ -95,7 +95,7 @@
     <!-- 裁剪模式提示 -->
     <Transition name="fade">
       <div v-if="store.cropModePhotoId" class="crop-hint">
-        <span>裁剪模式 - 拖动照片内容调整裁剪</span>
+        <span>裁剪模式 - 拖动照片内容调整裁剪，Shift + 滚轮缩放</span>
         <div class="crop-hint__actions">
           <button class="btn btn--success btn--sm" @click="applyCrop">
             <svg
@@ -238,6 +238,8 @@ const photoLayerState = ref<PhotoLayerState>({
 const PROGRESSIVE_PHOTO_THRESHOLD = 120;
 const CROP_CONFIRM_EVENT = "mosaic:crop-confirm";
 const CROP_CANCEL_EVENT = "mosaic:crop-cancel";
+const CROP_ZOOM_IN_EVENT = "mosaic:crop-zoom-in";
+const CROP_ZOOM_OUT_EVENT = "mosaic:crop-zoom-out";
 
 function handleExternalCropConfirm() {
   if (!store.cropModePhotoId) return;
@@ -247,6 +249,14 @@ function handleExternalCropConfirm() {
 function handleExternalCropCancel() {
   if (!store.cropModePhotoId) return;
   cancelCrop();
+}
+
+function handleExternalCropZoomIn() {
+  adjustCropZoom(1.08);
+}
+
+function handleExternalCropZoomOut() {
+  adjustCropZoom(1 / 1.08);
 }
 
 function readCanvasColors(): CanvasColors {
@@ -436,6 +446,8 @@ onMounted(() => {
   window.addEventListener("keyup", handleKeyUp);
   window.addEventListener(CROP_CONFIRM_EVENT, handleExternalCropConfirm);
   window.addEventListener(CROP_CANCEL_EVENT, handleExternalCropCancel);
+  window.addEventListener(CROP_ZOOM_IN_EVENT, handleExternalCropZoomIn);
+  window.addEventListener(CROP_ZOOM_OUT_EVENT, handleExternalCropZoomOut);
 
   // Prewarm cached CSS-derived colors after the initial DOM paint.
   nextTick(() => {
@@ -457,6 +469,8 @@ onUnmounted(() => {
   window.removeEventListener("keyup", handleKeyUp);
   window.removeEventListener(CROP_CONFIRM_EVENT, handleExternalCropConfirm);
   window.removeEventListener(CROP_CANCEL_EVENT, handleExternalCropCancel);
+  window.removeEventListener(CROP_ZOOM_IN_EVENT, handleExternalCropZoomIn);
+  window.removeEventListener(CROP_ZOOM_OUT_EVENT, handleExternalCropZoomOut);
   if (resizeObserver.value) {
     resizeObserver.value.disconnect();
     resizeObserver.value = null;
@@ -646,6 +660,11 @@ function zoomOut() {
 }
 
 function handleWheel(e: WheelEvent) {
+  if (store.cropModePhotoId && cropDraft.value && e.shiftKey) {
+    const zoomFactor = e.deltaY > 0 ? 1 / 1.08 : 1.08;
+    adjustCropZoom(zoomFactor, { x: e.clientX, y: e.clientY });
+    return;
+  }
   autoFit.value = false;
   const delta = e.deltaY > 0 ? 0.9 : 1.1;
   applyZoom(viewport.value.scale * delta, { x: e.clientX, y: e.clientY });
@@ -810,17 +829,20 @@ function handlePointerMove(e: PointerEvent) {
     const dy = y - mode.startY;
     const photo = store.photos.find(p => p.id === mode.id);
     if (!photo) return;
+    const frame = getCropFrame(photo);
+    const moveRatioX = mode.startCrop.width / Math.max(1, frame.width);
+    const moveRatioY = mode.startCrop.height / Math.max(1, frame.height);
 
     cropDraft.value = {
       ...mode.startCrop,
       // 拖动的是“照片内容”，因此 crop 方向与指针位移相反。
       x: clamp(
-        mode.startCrop.x - dx / photo.scale,
+        mode.startCrop.x - (dx / photo.scale) * moveRatioX,
         0,
         photo.imageWidth - mode.startCrop.width,
       ),
       y: clamp(
-        mode.startCrop.y - dy / photo.scale,
+        mode.startCrop.y - (dy / photo.scale) * moveRatioY,
         0,
         photo.imageHeight - mode.startCrop.height,
       ),
@@ -885,6 +907,75 @@ function getCropFrameHalfSize(photo: PhotoEntity): { hw: number; hh: number } {
     hw: (frame.width * photo.scale) / 2,
     hh: (frame.height * photo.scale) / 2,
   };
+}
+
+function adjustCropZoom(multiplier: number, anchorClient?: { x: number; y: number }) {
+  if (!store.cropModePhotoId || !cropDraft.value) return;
+  if (!isFinite(multiplier) || multiplier <= 0) return;
+
+  const photo = store.photos.find(p => p.id === store.cropModePhotoId);
+  if (!photo) return;
+
+  const frame = getCropFrame(photo);
+  const frameAspect = frame.width / Math.max(1, frame.height);
+  if (!isFinite(frameAspect) || frameAspect <= 0) return;
+
+  const source = cropDraft.value;
+  const imageAspect = photo.imageWidth / Math.max(1, photo.imageHeight);
+  const maxSource =
+    imageAspect > frameAspect
+      ? {
+          width: photo.imageHeight * frameAspect,
+          height: photo.imageHeight,
+        }
+      : {
+          width: photo.imageWidth,
+          height: photo.imageWidth / frameAspect,
+        };
+
+  const minSourceWidth = Math.min(
+    maxSource.width,
+    Math.max(48, frame.width * 0.12),
+  );
+  const nextWidth = clamp(source.width / multiplier, minSourceWidth, maxSource.width);
+  const nextHeight = nextWidth / frameAspect;
+
+  let anchorX = 0.5;
+  let anchorY = 0.5;
+  if (anchorClient && canvasEl.value) {
+    const point = screenToCanvas(anchorClient.x, anchorClient.y);
+    const dx = point.x - photo.cx;
+    const dy = point.y - photo.cy;
+    const local = inverseRotatePoint(dx, dy, photo.rotation);
+    const cropRect = getCropFrameHalfSize(photo);
+    if (Math.abs(local.x) <= cropRect.hw && Math.abs(local.y) <= cropRect.hh) {
+      anchorX = (local.x + cropRect.hw) / Math.max(1e-6, cropRect.hw * 2);
+      anchorY = (local.y + cropRect.hh) / Math.max(1e-6, cropRect.hh * 2);
+    }
+  }
+
+  const anchorSourceX = source.x + source.width * anchorX;
+  const anchorSourceY = source.y + source.height * anchorY;
+
+  const maxX = Math.max(0, photo.imageWidth - nextWidth);
+  const maxY = Math.max(0, photo.imageHeight - nextHeight);
+  const nextX = clamp(anchorSourceX - nextWidth * anchorX, 0, maxX);
+  const nextY = clamp(anchorSourceY - nextHeight * anchorY, 0, maxY);
+
+  const unchanged =
+    Math.abs(nextX - source.x) < 1e-4 &&
+    Math.abs(nextY - source.y) < 1e-4 &&
+    Math.abs(nextWidth - source.width) < 1e-4 &&
+    Math.abs(nextHeight - source.height) < 1e-4;
+  if (unchanged) return;
+
+  cropDraft.value = {
+    x: nextX,
+    y: nextY,
+    width: nextWidth,
+    height: nextHeight,
+  };
+  requestRender();
 }
 
 function pointInCropArea(
@@ -1081,21 +1172,17 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
     const source = cropDraft.value;
     const frameW = frame.width * photo.scale;
     const frameH = frame.height * photo.scale;
-    const fullW = photo.imageWidth * photo.scale;
-    const fullH = photo.imageHeight * photo.scale;
-    const drawX = -frameW / 2 - source.x * photo.scale;
-    const drawY = -frameH / 2 - source.y * photo.scale;
 
     c.drawImage(
       photo.image,
-      0,
-      0,
-      photo.imageWidth,
-      photo.imageHeight,
-      drawX,
-      drawY,
-      fullW,
-      fullH,
+      source.x,
+      source.y,
+      source.width,
+      source.height,
+      -frameW / 2,
+      -frameH / 2,
+      frameW,
+      frameH,
     );
   } else {
     const crop = photo.layoutCrop ?? photo.crop;

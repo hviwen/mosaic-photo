@@ -110,7 +110,7 @@ export class VisionClient {
         type: 'init',
         assets: this.assets,
         options: {
-          face: { scoreThreshold: 0.25, maxFaces: 5 },
+          face: { scoreThreshold: 0.15, maxFaces: 8 },
           object: { scoreThreshold: 0.25, maxResults: 6 },
         },
       }
@@ -166,4 +166,3 @@ export function getVisionClient(): VisionClient {
   if (!singleton) singleton = new VisionClient()
   return singleton
 }
-

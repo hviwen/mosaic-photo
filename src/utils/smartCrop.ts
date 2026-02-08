@@ -785,6 +785,21 @@ function ensureFaceVisibilityCrop(
   const required = bboxOf(faceRequiredBoxes);
   if (!required) return initialCrop;
 
+  const aspect = initialCrop.width / Math.max(1e-6, initialCrop.height);
+  const maxAspectCrop = fitAspectInside(base, aspect);
+  const makeAspectSizeContaining = (
+    minWidth: number,
+    minHeight: number,
+  ): { width: number; height: number } => {
+    let width = Math.max(minWidth, minHeight * aspect);
+    let height = width / aspect;
+    if (height < minHeight) {
+      height = minHeight;
+      width = height * aspect;
+    }
+    return { width, height };
+  };
+
   const anchor = centerOfRect(initialCrop);
   let candidate = placeCropToContain(
     base,
@@ -795,14 +810,18 @@ function ensureFaceVisibilityCrop(
   );
   if (cropContains(candidate, required)) return candidate;
 
+  const minAspectContainingRequired = makeAspectSizeContaining(
+    required.width,
+    required.height,
+  );
   const needFactor = Math.max(
-    required.width / Math.max(1, initialCrop.width),
-    required.height / Math.max(1, initialCrop.height),
+    minAspectContainingRequired.width / Math.max(1, initialCrop.width),
+    minAspectContainingRequired.height / Math.max(1, initialCrop.height),
     1,
   );
   const maxFactor = Math.min(
-    base.width / Math.max(1, initialCrop.width),
-    base.height / Math.max(1, initialCrop.height),
+    maxAspectCrop.width / Math.max(1, initialCrop.width),
+    maxAspectCrop.height / Math.max(1, initialCrop.height),
   );
   if (isFinite(maxFactor) && maxFactor >= 1) {
     const factor = Math.min(Math.max(1, needFactor), maxFactor);
@@ -816,12 +835,13 @@ function ensureFaceVisibilityCrop(
     if (cropContains(candidate, required)) return candidate;
   }
 
-  // 比例约束无法满足时，优先保证人脸完整显示。
+  // 比例约束无法满足时，仍保持比例不变，并尽可能放大到能覆盖最多人脸区域。
+  const finalAspectSize = makeAspectSizeContaining(required.width, required.height);
   candidate = placeCropToContain(
     base,
     required,
-    Math.min(base.width, Math.max(initialCrop.width, required.width)),
-    Math.min(base.height, Math.max(initialCrop.height, required.height)),
+    Math.min(maxAspectCrop.width, Math.max(initialCrop.width, finalAspectSize.width)),
+    Math.min(maxAspectCrop.height, Math.max(initialCrop.height, finalAspectSize.height)),
     anchor,
   );
 
@@ -854,17 +874,8 @@ export function calculateSmartCrop(
 
   if (!isFinite(targetAspect) || targetAspect <= 0) return { ...base };
 
-  // 优化1：裁剪比例限制——避免竖图被拉成极端横向、横图被拉成极端竖向
-  // 竖图（高 > 宽）：targetAspect 最大 1.5（6:4），不允许更宽的裁剪
-  // 横图（宽 > 高）：targetAspect 最小 0.667（4:6），不允许更高的裁剪
-  let clampedAspect = targetAspect;
-  if (imageHeight > imageWidth) {
-    // 竖图
-    clampedAspect = Math.min(clampedAspect, 1.5);
-  } else if (imageWidth > imageHeight) {
-    // 横图
-    clampedAspect = Math.max(clampedAspect, 1 / 1.5);
-  }
+  // 全局限制裁剪比例到 4:6 ~ 6:4，避免出现极端长宽比导致内容截断。
+  const clampedAspect = clamp(targetAspect, 1 / 1.5, 1.5);
 
   const maxFit = fitAspectInside(base, clampedAspect);
   const cropW = maxFit.width;

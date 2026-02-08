@@ -37,7 +37,7 @@ export async function createPhotoFromFile(
   file: File,
   canvasWidth: number,
   canvasHeight: number,
-  options?: { id?: string; prefetchSmartCrop?: boolean }
+  options?: { id?: string; prefetchSmartCrop?: boolean; maxImageEdge?: number }
 ): Promise<PhotoEntity> {
   const id = options?.id ?? generateId()
   const decoded = await decodeImageFile(file)
@@ -45,7 +45,8 @@ export async function createPhotoFromFile(
   let height = 0
   let canvas!: HTMLCanvasElement
   try {
-    const resized = resizeImage(decoded.image, MAX_IMAGE_EDGE)
+    const maxImageEdge = Math.max(256, Math.round(options?.maxImageEdge ?? MAX_IMAGE_EDGE))
+    const resized = resizeImage(decoded.image, maxImageEdge)
     canvas = resized.canvas
     width = resized.width
     height = resized.height
@@ -155,6 +156,14 @@ async function createPreviewUrlFromSource(
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
   const blob = await canvasToBlob(canvas, 'jpeg', 0.92)
   return URL.createObjectURL(blob)
+}
+
+export async function createPreviewUrlFromImageSource(
+  source: CanvasImageSource,
+  width: number,
+  height: number
+): Promise<string> {
+  return createPreviewUrlFromSource(source, width, height)
 }
 
 /**

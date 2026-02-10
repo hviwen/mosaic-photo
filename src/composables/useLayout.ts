@@ -1,6 +1,11 @@
-import type { PhotoEntity, ArrangeOptions, Placement } from "@/types";
+import type { PhotoEntity, ArrangeOptions, Placement, CropRect } from "@/types";
 import { centerCropToAspect } from "@/utils/image";
-import { getSmartDetections } from "@/utils/smartCrop";
+import {
+  getSmartDetections,
+  SMART_CROP_ASPECT_MAX,
+  SMART_CROP_ASPECT_MIN,
+  shouldApplySmartCropByImageAspect,
+} from "@/utils/smartCrop";
 import {
   randomInRange,
   degreesToRadians,
@@ -249,13 +254,164 @@ export interface FillArrangeOptions {
   splitRatioMax?: number;
 }
 
+type FillRect = { x: number; y: number; w: number; h: number };
+
+const FILL_MIN_SCALE = 0.1;
+const FILL_MAX_SCALE = 2.0;
+const CENTER_BIAS_WEIGHT = 0.55;
+const EDGE_BIAS_WEIGHT = 0.14;
+
+function splitLength(total: number, parts: number): number[] {
+  if (parts <= 0) return [];
+  const base = Math.floor(total / parts);
+  const remainder = total - base * parts;
+  return Array.from({ length: parts }, (_, i) => base + (i < remainder ? 1 : 0));
+}
+
+function buildFallbackGridTiles(
+  count: number,
+  canvasW: number,
+  canvasH: number,
+): FillRect[] {
+  if (count <= 0) return [];
+  const aspect = canvasW / Math.max(1, canvasH);
+  const cols = Math.max(1, Math.round(Math.sqrt(count * aspect)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+
+  const rowCounts = Array.from({ length: rows }, (_, i) => {
+    const remain = count - i * cols;
+    return Math.max(0, Math.min(cols, remain));
+  }).filter(v => v > 0);
+
+  const rowHeights = splitLength(canvasH, rowCounts.length);
+  const tiles: FillRect[] = [];
+  let y = 0;
+  for (let r = 0; r < rowCounts.length; r++) {
+    const colsInRow = rowCounts[r];
+    const h = rowHeights[r];
+    const colWidths = splitLength(canvasW, colsInRow);
+    let x = 0;
+    for (let c = 0; c < colsInRow; c++) {
+      const w = colWidths[c];
+      tiles.push({ x, y, w, h });
+      x += w;
+    }
+    y += h;
+  }
+  return tiles.slice(0, count);
+}
+
+function partitionRectToTiles(
+  root: FillRect,
+  count: number,
+  rand: () => number,
+  ratioMin: number,
+  ratioMax: number,
+): FillRect[] {
+  if (count <= 0) return [];
+  if (count === 1) return [root];
+
+  const splitRec = (rect: FillRect, need: number): FillRect[] => {
+    if (need <= 1) return [rect];
+
+    const countRatio = clamp(
+      ratioMin + (ratioMax - ratioMin) * rand(),
+      1 / need,
+      1 - 1 / need,
+    );
+    const leftCount = clamp(Math.round(need * countRatio), 1, need - 1);
+    const rightCount = need - leftCount;
+    const areaRatio = leftCount / need;
+
+    const trySplit = (
+      vertical: boolean,
+    ): { a: FillRect; b: FillRect } | null => {
+      if (vertical) {
+        if (rect.w < 2) return null;
+        const jitter = (rand() - 0.5) * 0.12;
+        const splitRatio = clamp(areaRatio + jitter, 0.1, 0.9);
+        const w1 = clamp(Math.round(rect.w * splitRatio), 1, rect.w - 1);
+        const w2 = rect.w - w1;
+        if (w1 < 1 || w2 < 1) return null;
+        return {
+          a: { x: rect.x, y: rect.y, w: w1, h: rect.h },
+          b: { x: rect.x + w1, y: rect.y, w: w2, h: rect.h },
+        };
+      }
+
+      if (rect.h < 2) return null;
+      const jitter = (rand() - 0.5) * 0.12;
+      const splitRatio = clamp(areaRatio + jitter, 0.1, 0.9);
+      const h1 = clamp(Math.round(rect.h * splitRatio), 1, rect.h - 1);
+      const h2 = rect.h - h1;
+      if (h1 < 1 || h2 < 1) return null;
+      return {
+        a: { x: rect.x, y: rect.y, w: rect.w, h: h1 },
+        b: { x: rect.x, y: rect.y + h1, w: rect.w, h: h2 },
+      };
+    };
+
+    const rectAspect = rect.w / Math.max(1, rect.h);
+    const preferVertical = rectAspect >= 1;
+    let split =
+      trySplit(preferVertical) ??
+      trySplit(!preferVertical) ??
+      trySplit(rect.w >= rect.h);
+
+    if (!split) {
+      // 极端退化场景兜底（超小像素块）：优先按可切方向二分。
+      if (rect.w >= 2) {
+        const w1 = Math.floor(rect.w / 2);
+        split = {
+          a: { x: rect.x, y: rect.y, w: w1, h: rect.h },
+          b: { x: rect.x + w1, y: rect.y, w: rect.w - w1, h: rect.h },
+        };
+      } else if (rect.h >= 2) {
+        const h1 = Math.floor(rect.h / 2);
+        split = {
+          a: { x: rect.x, y: rect.y, w: rect.w, h: h1 },
+          b: { x: rect.x, y: rect.y + h1, w: rect.w, h: rect.h - h1 },
+        };
+      } else {
+        return [rect];
+      }
+    }
+
+    return [
+      ...splitRec(split.a, leftCount),
+      ...splitRec(split.b, rightCount),
+    ];
+  };
+
+  return splitRec(root, count);
+}
+
+function recenterCropWithinBase(
+  base: CropRect,
+  preferred: CropRect,
+  targetWidth: number,
+  targetHeight: number,
+): CropRect {
+  const safeWidth = clamp(targetWidth, 1, base.width);
+  const safeHeight = clamp(targetHeight, 1, base.height);
+  const centerX = preferred.x + preferred.width / 2;
+  const centerY = preferred.y + preferred.height / 2;
+  const x = clamp(centerX - safeWidth / 2, base.x, base.x + base.width - safeWidth);
+  const y = clamp(
+    centerY - safeHeight / 2,
+    base.y,
+    base.y + base.height - safeHeight,
+  );
+  return { x, y, width: safeWidth, height: safeHeight };
+}
+
 /**
  * 画布“铺满式”自动排版：
  * - 无重叠
  * - 无缝隙（上下左右相邻无间隔）
  * - 所有照片铺满整个画布（无空白区域）
  *
- * 实现策略：把画布按行切分，每行按数量等分宽度，形成 n 个矩形 tile。
+ * 实现策略：递归切分画布为 n 个矩形 tile（整像素边界对齐）。
  * 每张照片会被自动居中裁剪到 tile 的宽高比，避免拉伸变形。
  */
 export function fillArrangePhotos(
@@ -285,133 +441,13 @@ export function fillArrangePhotos(
     return seed / 2 ** 32;
   };
 
-  type Rect = { x: number; y: number; w: number; h: number };
-  const rectArea = (r: Rect) => r.w * r.h;
-  const rectAspect = (r: Rect) => r.w / r.h;
+  const root: FillRect = { x: 0, y: 0, w: canvasW, h: canvasH };
+  const partitioned = partitionRectToTiles(root, n, rand, ratioMin, ratioMax);
+  const tiles =
+    partitioned.length === n
+      ? partitioned
+      : buildFallbackGridTiles(n, canvasW, canvasH);
 
-  const canvasArea = Math.max(1, canvasW * canvasH);
-  const avgTileSide = Math.sqrt(canvasArea / Math.max(1, n));
-  let minSide = clamp(avgTileSide * 0.38, 8, 42);
-
-  const rects: Rect[] = [{ x: 0, y: 0, w: canvasW, h: canvasH }];
-
-  function forceSplitLargestRect(): boolean {
-    if (rects.length === 0) return false;
-    let largestIdx = 0;
-    let largestArea = -1;
-    for (let i = 0; i < rects.length; i++) {
-      const area = rectArea(rects[i]);
-      if (area > largestArea) {
-        largestArea = area;
-        largestIdx = i;
-      }
-    }
-
-    const r = rects[largestIdx];
-    const splitVertical = r.w >= r.h;
-    if (splitVertical) {
-      if (r.w < 2) return false;
-      const w1 = Math.floor(r.w / 2);
-      const w2 = r.w - w1;
-      if (w1 < 1 || w2 < 1) return false;
-      rects.splice(
-        largestIdx,
-        1,
-        { x: r.x, y: r.y, w: w1, h: r.h },
-        { x: r.x + w1, y: r.y, w: w2, h: r.h },
-      );
-      return true;
-    }
-
-    if (r.h < 2) return false;
-    const h1 = Math.floor(r.h / 2);
-    const h2 = r.h - h1;
-    if (h1 < 1 || h2 < 1) return false;
-    rects.splice(
-      largestIdx,
-      1,
-      { x: r.x, y: r.y, w: r.w, h: h1 },
-      { x: r.x, y: r.y + h1, w: r.w, h: h2 },
-    );
-    return true;
-  }
-
-  // Irregular guillotine partition: keep splitting existing rectangles until we have n tiles.
-  const splitGuardLimit = Math.max(64, n * 8);
-  let splitGuard = 0;
-  while (rects.length < n && splitGuard < splitGuardLimit) {
-    splitGuard++;
-    let splitDone = false;
-
-    for (let relax = 0; relax < 8 && !splitDone; relax++) {
-      // Try candidates (largest first) to avoid getting stuck on tiny blocks.
-      const candidates = [...rects]
-        .map((r, idx) => ({ r, idx }))
-        .sort((a, b) => rectArea(b.r) - rectArea(a.r));
-
-      for (const { r, idx } of candidates) {
-        const ar = rectAspect(r);
-        const preferVertical =
-          ar > 1.2 ? true : ar < 0.85 ? false : rand() > 0.5;
-
-        const trySplit = (vertical: boolean) => {
-          if (vertical) {
-            if (r.w < minSide * 2) return null;
-            const ratio = ratioMin + (ratioMax - ratioMin) * rand();
-            const w1 = Math.round(r.w * ratio);
-            const w2 = r.w - w1;
-            if (w1 < minSide || w2 < minSide) return null;
-            const a: Rect = { x: r.x, y: r.y, w: w1, h: r.h };
-            const b: Rect = { x: r.x + w1, y: r.y, w: w2, h: r.h };
-            return [a, b] as const;
-          }
-
-          if (r.h < minSide * 2) return null;
-          const ratio = ratioMin + (ratioMax - ratioMin) * rand();
-          const h1 = Math.round(r.h * ratio);
-          const h2 = r.h - h1;
-          if (h1 < minSide || h2 < minSide) return null;
-          const a: Rect = { x: r.x, y: r.y, w: r.w, h: h1 };
-          const b: Rect = { x: r.x, y: r.y + h1, w: r.w, h: h2 };
-          return [a, b] as const;
-        };
-
-        const split = trySplit(preferVertical) ?? trySplit(!preferVertical);
-        if (!split) continue;
-
-        rects.splice(idx, 1, split[0], split[1]);
-        splitDone = true;
-        break;
-      }
-
-      if (!splitDone) {
-        // Relax minSide to guarantee we can always reach n tiles.
-        minSide = Math.max(2, minSide * 0.6);
-      }
-    }
-
-    if (!splitDone) {
-      // 兜底强制切分，确保在大批量（如 150 张）场景也能拿到足够 tile。
-      if (!forceSplitLargestRect()) break;
-      minSide = Math.max(2, minSide * 0.9);
-    }
-  }
-
-  // 二次兜底：继续强制切分，优先保证 tile 数量达到 n。
-  while (rects.length < n) {
-    if (!forceSplitLargestRect()) break;
-  }
-
-  if (splitGuard >= splitGuardLimit && rects.length < n) {
-    console.warn(
-      "[LayoutDebug] fillArrangePhotos: split guard reached, tiles",
-      rects.length,
-      "needed",
-      n,
-    );
-  }
-
-  const tiles = rects.slice(0, n);
   console.log(
     "[LayoutDebug] fillArrangePhotos: Created",
     tiles.length,
@@ -419,19 +455,19 @@ export function fillArrangePhotos(
     n,
   );
 
-  // Greedy match: choose photo whose aspect is closest to tile aspect to reduce crop.
-  // 优化2：中心放置策略——中心 tile 更优先给接近 1:1 的照片。
+  // Greedy match:
+  // 1) 保持“tile 与照片宽高比越接近越优先”
+  // 2) 叠加中心优先：中心 tile 更偏好接近 1:1 的照片
   const photosLeft = photos.map(photo => {
     const photoAspect = photo.crop.width / Math.max(1, photo.crop.height);
     const deviation = Math.abs(Math.log(Math.max(1e-6, photoAspect)));
-    return { photo, deviation };
+    return { photo, deviation, aspect: photoAspect };
   });
 
   // 预计算画布中心和最大距离（用于归一化）
   const canvasCx = canvasW / 2;
   const canvasCy = canvasH / 2;
   const maxDist = Math.sqrt(canvasCx * canvasCx + canvasCy * canvasCy) || 1;
-  const centerWeight = 0.38;
 
   // 按中心距离升序排序（从中心到边缘），而非按面积降序
   const tileOrder = [...tiles]
@@ -449,31 +485,66 @@ export function fillArrangePhotos(
   for (const { tile, dist } of tileOrder) {
     if (photosLeft.length === 0) break;
 
-    const ta = tile.w / tile.h;
+    const ta = tile.w / Math.max(1, tile.h);
     let bestIdx = 0;
-    let bestScore = -Infinity;
+    let bestCost = Infinity;
     for (let i = 0; i < photosLeft.length; i++) {
       const item = photosLeft[i];
-      const pa = item.photo.crop.width / Math.max(1, item.photo.crop.height);
-      const aspectDelta = Math.abs(Math.log(Math.max(1e-6, pa)) - Math.log(ta));
-      // 中心越近，越惩罚长条图（deviation 大）。
-      const score = -(aspectDelta + centerWeight * (1 - dist) * item.deviation);
-      if (score > bestScore) {
-        bestScore = score;
+      const aspectDelta = Math.abs(
+        Math.log(Math.max(1e-6, item.aspect)) - Math.log(Math.max(1e-6, ta)),
+      );
+      const centerPenalty = CENTER_BIAS_WEIGHT * (1 - dist) * item.deviation;
+      const edgeBonus = EDGE_BIAS_WEIGHT * dist * item.deviation;
+      const cost = aspectDelta + centerPenalty - edgeBonus;
+      if (cost < bestCost) {
+        bestCost = cost;
         bestIdx = i;
       }
     }
 
     const p = photosLeft.splice(bestIdx, 1)[0].photo;
-    const detections = getSmartDetections(p.id);
-    const nextCrop = centerCropToAspect(
+    const shouldSmartCrop = shouldApplySmartCropByImageAspect(
+      p.imageWidth,
+      p.imageHeight,
+    ) && ta >= SMART_CROP_ASPECT_MIN &&
+      ta <= SMART_CROP_ASPECT_MAX;
+    const detections = shouldSmartCrop ? getSmartDetections(p.id) : undefined;
+    let nextCrop = centerCropToAspect(
       p.crop,
       ta,
       p.imageWidth,
       p.imageHeight,
-      { detections },
+      detections && detections.length > 0 ? { detections } : undefined,
     );
-    const scale = tile.w / nextCrop.width;
+    const calculatedScale = tile.w / Math.max(1, nextCrop.width);
+    const clampedScale = Math.max(
+      FILL_MIN_SCALE,
+      Math.min(FILL_MAX_SCALE, calculatedScale),
+    );
+    let scale = clampedScale;
+
+    // 命中最大缩放时，优先尝试放大裁剪区域；若不可行，回退计算值保证铺满。
+    if (scale < calculatedScale - 1e-6) {
+      const targetCropW = tile.w / scale;
+      const targetCropH = tile.h / scale;
+      if (targetCropW <= p.crop.width + 1e-6 && targetCropH <= p.crop.height + 1e-6) {
+        nextCrop = recenterCropWithinBase(
+          p.crop,
+          nextCrop,
+          targetCropW,
+          targetCropH,
+        );
+      } else {
+        scale = calculatedScale;
+      }
+    }
+
+    // 最小缩放命中时，优先收窄裁剪框，避免放大后跨 tile 叠压。
+    if (scale > calculatedScale + 1e-6) {
+      const targetCropW = tile.w / scale;
+      const targetCropH = tile.h / scale;
+      nextCrop = recenterCropWithinBase(p.crop, nextCrop, targetCropW, targetCropH);
+    }
 
     placements.push({
       id: p.id,

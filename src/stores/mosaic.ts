@@ -26,6 +26,9 @@ import {
   onSmartDetectionsChanged,
   prefetchSmartDetections,
   seedSmartDetections,
+  SMART_CROP_ASPECT_MAX,
+  SMART_CROP_ASPECT_MIN,
+  shouldApplySmartCropByImageAspect,
 } from "@/utils/smartCrop";
 import { getVisionClient } from "@/vision/visionClient";
 
@@ -179,14 +182,18 @@ export const useMosaicStore = defineStore("mosaic", () => {
     const photo = photos.value.find(p => p.id === photoId);
     if (!photo?.layoutCrop) return;
     const ta = photo.layoutCrop.width / Math.max(1, photo.layoutCrop.height);
+    const shouldSmartCrop = shouldApplySmartCropByImageAspect(
+      photo.imageWidth,
+      photo.imageHeight,
+    ) && ta >= SMART_CROP_ASPECT_MIN &&
+      ta <= SMART_CROP_ASPECT_MAX;
+    const detections = shouldSmartCrop ? getSmartDetections(photoId) : undefined;
     const next = centerCropToAspect(
       photo.crop,
       ta,
       photo.imageWidth,
       photo.imageHeight,
-      {
-        detections: getSmartDetections(photoId),
-      },
+      detections && detections.length > 0 ? { detections } : undefined,
     );
     photo.layoutCrop = clampCrop(next, photo.imageWidth, photo.imageHeight);
   });
@@ -1167,14 +1174,21 @@ export const useMosaicStore = defineStore("mosaic", () => {
       width: loaded.imageWidth,
       height: loaded.imageHeight,
     };
+    const replacementDetections = shouldApplySmartCropByImageAspect(
+      loaded.imageWidth,
+      loaded.imageHeight,
+    ) && targetAspect >= SMART_CROP_ASPECT_MIN &&
+      targetAspect <= SMART_CROP_ASPECT_MAX
+      ? getSmartDetections(id)
+      : undefined;
     const nextCrop = centerCropToAspect(
       fullCrop,
       targetAspect,
       loaded.imageWidth,
       loaded.imageHeight,
-      {
-        detections: getSmartDetections(id),
-      },
+      replacementDetections && replacementDetections.length > 0
+        ? { detections: replacementDetections }
+        : undefined,
     );
 
     const oldDrawW = effectiveCrop.width * photo.scale;

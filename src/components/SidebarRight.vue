@@ -62,322 +62,365 @@
       </v-alert>
 
       <div v-else>
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">当前选中</v-card-title>
-          <v-card-text>
-            <div class="d-flex flex-column" style="gap: 0.25rem">
-              <div class="text-caption">文件：{{ selectedPhoto.name }}</div>
-              <div class="text-caption">
-                尺寸：{{ selectedPhoto.imageWidth }} ×
-                {{ selectedPhoto.imageHeight }}
-              </div>
-              <div class="text-caption">
-                裁剪：{{ Math.round(selectedPhoto.crop.width) }} ×
-                {{ Math.round(selectedPhoto.crop.height) }}
-              </div>
-              <div class="text-caption">图层：{{ selectedPhoto.zIndex }}</div>
+        <!-- 当前选中信息（始终显示，不折叠） -->
+        <div
+          class="pa-3 mb-2"
+          style="
+            background: rgba(var(--v-theme-surface-variant), 0.08);
+            border-radius: 8px;
+          ">
+          <div class="text-subtitle-2 mb-1">当前选中</div>
+          <div class="d-flex flex-column" style="gap: 0.15rem">
+            <div class="text-caption">文件：{{ selectedPhoto.name }}</div>
+            <div class="text-caption">
+              尺寸：{{ selectedPhoto.imageWidth }} ×
+              {{ selectedPhoto.imageHeight }}
             </div>
-          </v-card-text>
-        </v-card>
-
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">原图缩略</v-card-title>
-          <v-card-text>
-            <div class="origin-preview rounded">
-              <canvas ref="originPreviewCanvasEl" class="origin-preview__canvas" />
-            </div>
-            <div v-if="isFaceDetecting" class="text-caption mt-2">
-              人脸检测中...
-            </div>
-            <div v-else class="text-caption mt-2">
-              已检测到 {{ faceBoxes.length }} 个人脸区域
-            </div>
-            <div class="text-caption mt-2">
-              保持宽高比等比缩放展示（不受裁剪/滤镜影响）
-            </div>
-          </v-card-text>
-        </v-card>
-
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">操作历史</v-card-title>
-          <v-card-text>
-            <div class="d-flex flex-wrap" style="gap: 0.5rem">
-              <v-btn
-                size="small"
-                variant="outlined"
-                :disabled="!store.canUndo"
-                prepend-icon="mdi-undo"
-                @click="store.undo()">
-                撤销
-              </v-btn>
-              <v-btn
-                size="small"
-                variant="outlined"
-                :disabled="!store.canRedo"
-                prepend-icon="mdi-redo"
-                @click="store.redo()">
-                重做
-              </v-btn>
-              <v-spacer />
-              <v-btn
-                size="small"
-                variant="text"
-                :disabled="store.history.length === 0"
-                prepend-icon="mdi-delete-sweep"
-                @click="clearHistory">
-                清空
-              </v-btn>
-            </div>
-
-            <v-divider class="my-3" />
-
-            <v-alert
-              v-if="store.history.length === 0"
-              type="info"
-              variant="tonal"
-              density="compact">
-              暂无操作记录
-            </v-alert>
-
-            <v-list v-else density="compact">
-              <v-list-item
-                v-for="(item, idx) in historyItems"
-                :key="item.id"
-                :title="item.label"
-                :subtitle="formatHistorySubtitle(item, idx)" />
-            </v-list>
-          </v-card-text>
-        </v-card>
-
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">替换图片</v-card-title>
-          <v-card-text>
-            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-              仅替换图片内容，保持当前位置与显示尺寸不变。
-            </v-alert>
-            <input
-              ref="replaceInputEl"
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.HEIC,.heif,.HEIF"
-              style="display: none"
-              @change="handleReplaceFileChange" />
-            <v-btn
-              block
-              variant="outlined"
-              prepend-icon="mdi-image-edit"
-              :loading="isReplacing"
-              @click="openReplacePicker">
-              选择新图片
-            </v-btn>
-          </v-card-text>
-        </v-card>
-
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">位置</v-card-title>
-          <v-card-text>
-            <v-text-field
-              :model-value="Math.round(selectedPhoto.cx)"
-              type="number"
-              density="compact"
-              label="X"
-              @update:model-value="v => updatePosition('cx', v)" />
-            <v-text-field
-              :model-value="Math.round(selectedPhoto.cy)"
-              type="number"
-              density="compact"
-              label="Y"
-              @update:model-value="v => updatePosition('cy', v)" />
-          </v-card-text>
-        </v-card>
-
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">变换</v-card-title>
-          <v-card-text>
-            <div class="d-flex align-center justify-space-between">
-              <div class="text-caption">缩放</div>
-              <div class="text-caption">{{ scalePercent }}%</div>
-            </div>
-            <v-slider
-              :model-value="selectedPhoto.scale"
-              min="0.05"
-              max="3"
-              step="0.01"
-              density="compact"
-              @update:model-value="updateScale" />
-
-            <div class="d-flex align-center justify-space-between mt-3">
-              <div class="text-caption">旋转</div>
-              <div class="text-caption">{{ rotationDeg }}°</div>
-            </div>
-            <v-slider
-              :model-value="radiansToDegrees(selectedPhoto.rotation)"
-              min="-180"
-              max="180"
-              step="1"
-              density="compact"
-              @update:model-value="updateRotation" />
-          </v-card-text>
-        </v-card>
-
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">图层</v-card-title>
-          <v-card-text>
-            <div class="d-flex flex-wrap" style="gap: 0.5rem">
-              <v-btn
-                size="small"
-                variant="outlined"
-                @click="bringToFront"
-                prepend-icon="mdi-arrow-up">
-                置顶
-              </v-btn>
-              <v-btn
-                size="small"
-                variant="outlined"
-                @click="sendToBack"
-                prepend-icon="mdi-arrow-down">
-                置底
-              </v-btn>
-            </div>
-          </v-card-text>
-        </v-card>
-
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">裁剪</v-card-title>
-          <v-card-text>
-            <div class="text-caption mb-3">
-              当前裁剪区域: {{ Math.round(selectedPhoto.crop.width) }} ×
+            <div class="text-caption">
+              裁剪：{{ Math.round(selectedPhoto.crop.width) }} ×
               {{ Math.round(selectedPhoto.crop.height) }}
             </div>
-            <v-btn
-              v-if="!isSelectedInCropMode"
-              class="mt-3"
-              block
-              variant="outlined"
-              prepend-icon="mdi-crop"
-              @click="enterCropMode">
-              裁剪照片
-            </v-btn>
-            <div v-else class="d-flex mt-3" style="gap: 0.5rem">
+            <div class="text-caption">图层：{{ selectedPhoto.zIndex }}</div>
+          </div>
+        </div>
+
+        <v-expansion-panels
+          v-model="expandedPanels"
+          multiple
+          variant="accordion"
+          class="sidebar-panels">
+          <!-- 原图缩略（默认展开） -->
+          <v-expansion-panel value="thumbnail">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              原图缩略
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="origin-preview rounded">
+                <canvas
+                  ref="originPreviewCanvasEl"
+                  class="origin-preview__canvas" />
+              </div>
+              <div v-if="isFaceDetecting" class="text-caption mt-2">
+                人脸检测中...
+              </div>
+              <div v-else class="text-caption mt-2">
+                已检测到 {{ faceBoxes.length }} 个人脸区域
+              </div>
+              <div class="text-caption mt-2">
+                保持宽高比等比缩放展示（不受裁剪/滤镜影响）
+              </div>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- 裁剪 -->
+          <v-expansion-panel value="crop">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              裁剪
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="text-caption mb-3">
+                当前裁剪区域: {{ Math.round(selectedPhoto.crop.width) }} ×
+                {{ Math.round(selectedPhoto.crop.height) }}
+              </div>
               <v-btn
+                v-if="!isSelectedInCropMode"
                 block
-                color="success"
+                variant="outlined"
+                prepend-icon="mdi-crop"
+                @click="enterCropMode">
+                裁剪照片
+              </v-btn>
+              <div v-else class="d-flex" style="gap: 0.5rem">
+                <v-btn
+                  block
+                  color="success"
+                  variant="tonal"
+                  prepend-icon="mdi-check"
+                  @click="confirmCrop">
+                  确认
+                </v-btn>
+                <v-btn
+                  block
+                  color="secondary"
+                  variant="outlined"
+                  prepend-icon="mdi-close"
+                  @click="cancelCrop">
+                  取消
+                </v-btn>
+              </div>
+              <div
+                v-if="isSelectedInCropMode"
+                class="d-flex mt-2"
+                style="gap: 0.5rem">
+                <v-btn
+                  block
+                  size="small"
+                  variant="outlined"
+                  prepend-icon="mdi-magnify-minus-outline"
+                  @click="zoomCropOut">
+                  缩小
+                </v-btn>
+                <v-btn
+                  block
+                  size="small"
+                  variant="outlined"
+                  prepend-icon="mdi-magnify-plus-outline"
+                  @click="zoomCropIn">
+                  放大
+                </v-btn>
+              </div>
+              <div v-if="isSelectedInCropMode" class="text-caption mt-2">
+                支持 Shift + 鼠标滚轮缩放
+              </div>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- 变换 -->
+          <v-expansion-panel value="transform">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              变换
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="d-flex align-center justify-space-between">
+                <div class="text-caption">缩放</div>
+                <div class="text-caption">{{ scalePercent }}%</div>
+              </div>
+              <v-slider
+                :model-value="selectedPhoto.scale"
+                min="0.05"
+                max="3"
+                step="0.01"
+                density="compact"
+                @update:model-value="updateScale" />
+
+              <div class="d-flex align-center justify-space-between mt-3">
+                <div class="text-caption">旋转</div>
+                <div class="text-caption">{{ rotationDeg }}°</div>
+              </div>
+              <v-slider
+                :model-value="radiansToDegrees(selectedPhoto.rotation)"
+                min="-180"
+                max="180"
+                step="1"
+                density="compact"
+                @update:model-value="updateRotation" />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- 位置 -->
+          <v-expansion-panel value="position">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              位置
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <v-text-field
+                :model-value="Math.round(selectedPhoto.cx)"
+                type="number"
+                density="compact"
+                label="X"
+                @update:model-value="v => updatePosition('cx', v)" />
+              <v-text-field
+                :model-value="Math.round(selectedPhoto.cy)"
+                type="number"
+                density="compact"
+                label="Y"
+                @update:model-value="v => updatePosition('cy', v)" />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- 图层 -->
+          <v-expansion-panel value="layer">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              图层
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="d-flex flex-wrap" style="gap: 0.5rem">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="bringToFront"
+                  prepend-icon="mdi-arrow-up">
+                  置顶
+                </v-btn>
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="sendToBack"
+                  prepend-icon="mdi-arrow-down">
+                  置底
+                </v-btn>
+              </div>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- 调色与滤镜 -->
+          <v-expansion-panel value="filters">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              调色与滤镜
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="d-flex align-center justify-space-between">
+                <div class="text-caption">亮度</div>
+                <div class="text-caption">
+                  {{ Math.round((adjustDraft.brightness ?? 1) * 100) }}%
+                </div>
+              </div>
+              <v-slider
+                :model-value="adjustDraft.brightness"
+                min="0.5"
+                max="1.6"
+                step="0.01"
+                density="compact"
+                @update:model-value="v => updateAdjustments('brightness', v)" />
+
+              <div class="d-flex align-center justify-space-between mt-3">
+                <div class="text-caption">对比度</div>
+                <div class="text-caption">
+                  {{ Math.round((adjustDraft.contrast ?? 1) * 100) }}%
+                </div>
+              </div>
+              <v-slider
+                :model-value="adjustDraft.contrast"
+                min="0.5"
+                max="1.8"
+                step="0.01"
+                density="compact"
+                @update:model-value="v => updateAdjustments('contrast', v)" />
+
+              <div class="d-flex align-center justify-space-between mt-3">
+                <div class="text-caption">饱和度</div>
+                <div class="text-caption">
+                  {{ Math.round((adjustDraft.saturation ?? 1) * 100) }}%
+                </div>
+              </div>
+              <v-slider
+                :model-value="adjustDraft.saturation"
+                min="0"
+                max="2"
+                step="0.01"
+                density="compact"
+                @update:model-value="v => updateAdjustments('saturation', v)" />
+
+              <v-select
+                class="mt-3"
+                :model-value="adjustDraft.preset"
+                :items="filterOptions"
+                item-title="label"
+                item-value="value"
+                density="compact"
+                label="滤镜"
+                @update:model-value="v => updateAdjustments('preset', v)" />
+
+              <div class="d-flex flex-wrap mt-3" style="gap: 0.5rem">
+                <v-btn
+                  size="small"
+                  color="primary"
+                  variant="tonal"
+                  @click="applyAdjustments"
+                  :disabled="!hasAdjustmentChanges">
+                  应用
+                </v-btn>
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="resetAdjustments"
+                  :disabled="!hasAdjustmentChanges">
+                  重置
+                </v-btn>
+              </div>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- 替换图片 -->
+          <v-expansion-panel value="replace">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              替换图片
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <v-alert
+                type="info"
                 variant="tonal"
-                prepend-icon="mdi-check"
-                @click="confirmCrop">
-                确认
-              </v-btn>
+                density="compact"
+                class="mb-3">
+                仅替换图片内容，保持当前位置与显示尺寸不变。
+              </v-alert>
+              <input
+                ref="replaceInputEl"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.HEIC,.heif,.HEIF"
+                style="display: none"
+                @change="handleReplaceFileChange" />
               <v-btn
                 block
-                color="secondary"
                 variant="outlined"
-                prepend-icon="mdi-close"
-                @click="cancelCrop">
-                取消
+                prepend-icon="mdi-image-edit"
+                :loading="isReplacing"
+                @click="openReplacePicker">
+                选择新图片
               </v-btn>
-            </div>
-            <div v-if="isSelectedInCropMode" class="d-flex mt-2" style="gap: 0.5rem">
-              <v-btn
-                block
-                size="small"
-                variant="outlined"
-                prepend-icon="mdi-magnify-minus-outline"
-                @click="zoomCropOut">
-                缩小
-              </v-btn>
-              <v-btn
-                block
-                size="small"
-                variant="outlined"
-                prepend-icon="mdi-magnify-plus-outline"
-                @click="zoomCropIn">
-                放大
-              </v-btn>
-            </div>
-            <div v-if="isSelectedInCropMode" class="text-caption mt-2">
-              支持 Shift + 鼠标滚轮缩放
-            </div>
-          </v-card-text>
-        </v-card>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
 
-        <v-card variant="tonal" class="mb-4">
-          <v-card-title class="text-subtitle-2">调色与滤镜</v-card-title>
-          <v-card-text>
-            <div class="d-flex align-center justify-space-between">
-              <div class="text-caption">亮度</div>
-              <div class="text-caption">
-                {{ Math.round((adjustDraft.brightness ?? 1) * 100) }}%
+          <!-- 操作历史 -->
+          <v-expansion-panel value="history">
+            <v-expansion-panel-title class="text-subtitle-2 py-2">
+              操作历史
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="d-flex flex-wrap" style="gap: 0.5rem">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  :disabled="!store.canUndo"
+                  prepend-icon="mdi-undo"
+                  @click="store.undo()">
+                  撤销
+                </v-btn>
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  :disabled="!store.canRedo"
+                  prepend-icon="mdi-redo"
+                  @click="store.redo()">
+                  重做
+                </v-btn>
+                <v-spacer />
+                <v-btn
+                  size="small"
+                  variant="text"
+                  :disabled="store.history.length === 0"
+                  prepend-icon="mdi-delete-sweep"
+                  @click="clearHistory">
+                  清空
+                </v-btn>
               </div>
-            </div>
-            <v-slider
-              :model-value="adjustDraft.brightness"
-              min="0.5"
-              max="1.6"
-              step="0.01"
-              density="compact"
-              @update:model-value="v => updateAdjustments('brightness', v)" />
 
-            <div class="d-flex align-center justify-space-between mt-3">
-              <div class="text-caption">对比度</div>
-              <div class="text-caption">
-                {{ Math.round((adjustDraft.contrast ?? 1) * 100) }}%
-              </div>
-            </div>
-            <v-slider
-              :model-value="adjustDraft.contrast"
-              min="0.5"
-              max="1.8"
-              step="0.01"
-              density="compact"
-              @update:model-value="v => updateAdjustments('contrast', v)" />
+              <v-divider class="my-3" />
 
-            <div class="d-flex align-center justify-space-between mt-3">
-              <div class="text-caption">饱和度</div>
-              <div class="text-caption">
-                {{ Math.round((adjustDraft.saturation ?? 1) * 100) }}%
-              </div>
-            </div>
-            <v-slider
-              :model-value="adjustDraft.saturation"
-              min="0"
-              max="2"
-              step="0.01"
-              density="compact"
-              @update:model-value="v => updateAdjustments('saturation', v)" />
-
-            <v-select
-              class="mt-3"
-              :model-value="adjustDraft.preset"
-              :items="filterOptions"
-              item-title="label"
-              item-value="value"
-              density="compact"
-              label="滤镜"
-              @update:model-value="v => updateAdjustments('preset', v)" />
-
-            <div class="d-flex flex-wrap mt-3" style="gap: 0.5rem">
-              <v-btn
-                size="small"
-                color="primary"
+              <v-alert
+                v-if="store.history.length === 0"
+                type="info"
                 variant="tonal"
-                @click="applyAdjustments"
-                :disabled="!hasAdjustmentChanges">
-                应用
-              </v-btn>
-              <v-btn
-                size="small"
-                variant="outlined"
-                @click="resetAdjustments"
-                :disabled="!hasAdjustmentChanges">
-                重置
-              </v-btn>
-            </div>
-          </v-card-text>
-        </v-card>
+                density="compact">
+                暂无操作记录
+              </v-alert>
+
+              <v-list v-else density="compact">
+                <v-list-item
+                  v-for="(item, idx) in historyItems"
+                  :key="item.id"
+                  :title="item.label"
+                  :subtitle="formatHistorySubtitle(item, idx)" />
+              </v-list>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
 
         <v-btn
           color="error"
           variant="tonal"
           block
+          class="mt-4"
           @click="deletePhoto"
           prepend-icon="mdi-delete">
           删除照片
@@ -415,6 +458,8 @@ const CROP_ZOOM_OUT_EVENT = "mosaic:crop-zoom-out";
 
 const selectedPhoto = computed(() => store.selectedPhoto);
 const detectionTick = ref(0);
+// 默认只展开缩略图面板，其余折叠
+const expandedPanels = ref<string[]>(["thumbnail"]);
 const isSelectedInCropMode = computed(
   () =>
     Boolean(selectedPhoto.value) &&
@@ -589,7 +634,13 @@ function sendToBack() {
 function enterCropMode() {
   if (!selectedPhoto.value) return;
   store.enterCropMode(selectedPhoto.value.id);
-  toast.info("裁剪模式：拖动调整裁剪区域，Shift + 滚轮缩放，Enter 确认，Esc 取消");
+  // 自动展开裁剪面板
+  if (!expandedPanels.value.includes("crop")) {
+    expandedPanels.value = [...expandedPanels.value, "crop"];
+  }
+  toast.info(
+    "裁剪模式：拖动调整裁剪区域，Shift + 滚轮缩放，Enter 确认，Esc 取消",
+  );
 }
 
 function confirmCrop() {
@@ -781,7 +832,17 @@ function drawOriginPreview() {
   const offsetX = (cssW - drawW) / 2;
   const offsetY = (cssH - drawH) / 2;
 
-  ctx.drawImage(photo.image, 0, 0, imageW, imageH, offsetX, offsetY, drawW, drawH);
+  ctx.drawImage(
+    photo.image,
+    0,
+    0,
+    imageW,
+    imageH,
+    offsetX,
+    offsetY,
+    drawW,
+    drawH,
+  );
 
   const scaleX = drawW / imageW;
   const scaleY = drawH / imageH;
@@ -820,5 +881,15 @@ function deletePhoto() {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.sidebar-panels :deep(.v-expansion-panel-title) {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 0.8125rem;
+}
+
+.sidebar-panels :deep(.v-expansion-panel-text__wrapper) {
+  padding: 8px 12px 12px;
 }
 </style>

@@ -514,13 +514,8 @@ watch(
       const photo = store.photos.find(p => p.id === id);
       const reference = photo ? store.getCropModeReferenceCrop(id) : null;
       if (photo && reference) {
-        // 进入裁剪时,固定裁剪框尺寸为进入前显示区域,从原图左上角(0,0)开始显示,后续只通过拖动内容改变 x/y。
-        cropDraft.value = {
-          x: clamp(0, 0, photo.imageWidth - reference.width),
-          y: clamp(0, 0, photo.imageHeight - reference.height),
-          width: clamp(reference.width, 1, photo.imageWidth),
-          height: clamp(reference.height, 1, photo.imageHeight),
-        };
+        // 进入裁剪时,使用照片当前裁剪区域（而非从 0,0 开始），保留当前视图并允许双向缩放。
+        cropDraft.value = { ...photo.crop };
       } else {
         cropDraft.value = photo ? { ...photo.crop } : null;
       }
@@ -909,7 +904,10 @@ function getCropFrameHalfSize(photo: PhotoEntity): { hw: number; hh: number } {
   };
 }
 
-function adjustCropZoom(multiplier: number, anchorClient?: { x: number; y: number }) {
+function adjustCropZoom(
+  multiplier: number,
+  anchorClient?: { x: number; y: number },
+) {
   if (!store.cropModePhotoId || !cropDraft.value) return;
   if (!isFinite(multiplier) || multiplier <= 0) return;
 
@@ -937,7 +935,11 @@ function adjustCropZoom(multiplier: number, anchorClient?: { x: number; y: numbe
     maxSource.width,
     Math.max(48, frame.width * 0.12),
   );
-  const nextWidth = clamp(source.width / multiplier, minSourceWidth, maxSource.width);
+  const nextWidth = clamp(
+    source.width / multiplier,
+    minSourceWidth,
+    maxSource.width,
+  );
   const nextHeight = nextWidth / frameAspect;
 
   let anchorX = 0.5;
@@ -1162,6 +1164,11 @@ function drawGrid(c: CanvasRenderingContext2D) {
 
 function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
   c.save();
+  // 铺满式布局要求不溢出画布：先裁剪到画布边界。
+  c.beginPath();
+  c.rect(0, 0, store.canvasWidth, store.canvasHeight);
+  c.clip();
+
   c.translate(photo.cx, photo.cy);
   c.rotate(photo.rotation);
   const f = buildCanvasFilter(photo.adjustments);
@@ -1169,7 +1176,26 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
 
   if (store.cropModePhotoId === photo.id && cropDraft.value) {
     const frame = getCropFrame(photo);
-    const source = cropDraft.value;
+    const safeX = clamp(cropDraft.value.x, 0, Math.max(0, photo.imageWidth - 1));
+    const safeY = clamp(
+      cropDraft.value.y,
+      0,
+      Math.max(0, photo.imageHeight - 1),
+    );
+    const source = {
+      x: safeX,
+      y: safeY,
+      width: clamp(
+        cropDraft.value.width,
+        1,
+        Math.max(1, photo.imageWidth - safeX),
+      ),
+      height: clamp(
+        cropDraft.value.height,
+        1,
+        Math.max(1, photo.imageHeight - safeY),
+      ),
+    };
     const frameW = frame.width * photo.scale;
     const frameH = frame.height * photo.scale;
 
@@ -1185,7 +1211,19 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
       frameH,
     );
   } else {
-    const crop = photo.layoutCrop ?? photo.crop;
+    const rawCrop = photo.layoutCrop ?? photo.crop;
+    const safeX = clamp(rawCrop.x, 0, Math.max(0, photo.imageWidth - 1));
+    const safeY = clamp(rawCrop.y, 0, Math.max(0, photo.imageHeight - 1));
+    const crop = {
+      x: safeX,
+      y: safeY,
+      width: clamp(rawCrop.width, 1, Math.max(1, photo.imageWidth - safeX)),
+      height: clamp(
+        rawCrop.height,
+        1,
+        Math.max(1, photo.imageHeight - safeY),
+      ),
+    };
     const { hw, hh } = getDrawHalfSize(photo, crop);
     c.drawImage(
       photo.image,
@@ -1316,11 +1354,16 @@ function drawCropOverlay(c: CanvasRenderingContext2D, photo: PhotoEntity) {
   border-radius: 0.75rem;
   color: white;
   font-size: 0.875rem;
-  z-index: 10;
+  z-index: 100;
+  white-space: nowrap;
+  max-width: calc(100% - 2rem);
+  box-sizing: border-box;
+  pointer-events: auto;
 }
 
 .crop-hint__actions {
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 </style>

@@ -252,6 +252,47 @@ function clamp(num: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, num));
 }
 
+/**
+ * 智能裁剪期望比例边界：
+ * - 最窄 4:6（约 0.667）
+ * - 最宽 6:4（1.5）
+ */
+export const SMART_CROP_ASPECT_MIN = 1 / 1.5;
+export const SMART_CROP_ASPECT_MAX = 1.5;
+
+/**
+ * 是否需要启用“比例受限”的智能裁剪：
+ * - 竖图且高宽比 > 1.5
+ * - 横图且高宽比 < 0.667（等价于宽高比 > 1.5）
+ */
+export function shouldApplySmartCropByImageAspect(
+  imageWidth: number,
+  imageHeight: number,
+): boolean {
+  const safeW = Math.max(1, imageWidth);
+  const safeH = Math.max(1, imageHeight);
+  const hOverW = safeH / safeW;
+
+  if (safeH > safeW) return hOverW > SMART_CROP_ASPECT_MAX;
+  if (safeW > safeH) return hOverW < SMART_CROP_ASPECT_MIN;
+  return false;
+}
+
+/**
+ * 按原图宽高比决定目标裁剪比例是否需要限制。
+ */
+export function clampSmartCropTargetAspect(
+  targetAspect: number,
+  imageWidth: number,
+  imageHeight: number,
+): number {
+  if (!isFinite(targetAspect) || targetAspect <= 0) return targetAspect;
+  if (!shouldApplySmartCropByImageAspect(imageWidth, imageHeight)) {
+    return targetAspect;
+  }
+  return clamp(targetAspect, SMART_CROP_ASPECT_MIN, SMART_CROP_ASPECT_MAX);
+}
+
 function resolveSourceSize(source: CanvasImageSource): Size | null {
   if (
     typeof HTMLImageElement !== "undefined" &&
@@ -874,8 +915,12 @@ export function calculateSmartCrop(
 
   if (!isFinite(targetAspect) || targetAspect <= 0) return { ...base };
 
-  // 全局限制裁剪比例到 4:6 ~ 6:4，避免出现极端长宽比导致内容截断。
-  const clampedAspect = clamp(targetAspect, 1 / 1.5, 1.5);
+  // 按原图宽高比决定是否限制目标比例（仅对极端长图生效）。
+  const clampedAspect = clampSmartCropTargetAspect(
+    targetAspect,
+    imageWidth,
+    imageHeight,
+  );
 
   const maxFit = fitAspectInside(base, clampedAspect);
   const cropW = maxFit.width;

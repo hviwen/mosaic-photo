@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { calculateSmartCrop, type SmartDetection } from "@/utils/smartCrop";
+import {
+  calculateSmartCrop,
+  shouldApplySmartCropByImageAspect,
+  type SmartDetection,
+} from "@/utils/smartCrop";
 import type { CropRect } from "@/types";
 
 function approx(a: number, b: number, eps: number = 1e-3): boolean {
@@ -68,7 +72,7 @@ describe("calculateSmartCrop", () => {
 
   // 优化1：竖图裁剪比例不超过 6:4（1.5）
   it("竖图裁剪比例限制：targetAspect > 1.5 时被夹持到 1.5", () => {
-    const image = { width: 800, height: 1200 }; // 竖图
+    const image = { width: 700, height: 1200 }; // 竖图，height/width > 1.5
     const targetAspect = 2.5; // 极端横向比例
 
     const crop = calculateSmartCrop(image, targetAspect, []);
@@ -88,15 +92,32 @@ describe("calculateSmartCrop", () => {
     expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
   });
 
-  // 优化1：正方形图片同样受 4:6 ~ 6:4 的全局比例限制
-  it("正方形图片也限制在 4:6 ~ 6:4 范围内", () => {
+  // 优化1：非极端比例图片，不触发“比例受限”智能裁剪
+  it("比例在范围内的竖图不强制限制目标比例", () => {
+    const image = { width: 1000, height: 1400 }; // height/width = 1.4
+    const targetAspect = 2.0;
+
+    const crop = calculateSmartCrop(image, targetAspect, []);
+    const actual = crop.width / crop.height;
+    expect(approx(actual, targetAspect, 1e-2)).toBe(true);
+  });
+
+  it("比例在范围内的横图不强制限制目标比例", () => {
+    const image = { width: 1400, height: 1000 }; // height/width = 0.714
+    const targetAspect = 0.5;
+
+    const crop = calculateSmartCrop(image, targetAspect, []);
+    const actual = crop.width / crop.height;
+    expect(approx(actual, targetAspect, 1e-2)).toBe(true);
+  });
+
+  it("正方形图片默认不触发比例受限逻辑", () => {
     const image = { width: 1000, height: 1000 }; // 正方形
     const targetAspect = 2.0;
 
     const crop = calculateSmartCrop(image, targetAspect, []);
     const actual = crop.width / crop.height;
-    expect(actual).toBeLessThanOrEqual(1.5 + 1e-2);
-    expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
+    expect(approx(actual, targetAspect, 1e-2)).toBe(true);
   });
 
   // 优化1：人脸最小尺寸保证 100×100
@@ -122,5 +143,12 @@ describe("calculateSmartCrop", () => {
     // 人脸应完整包含在裁剪框内（可见宽高 == 人脸宽高）
     expect(visibleW).toBeGreaterThanOrEqual(smallFace.box.width - 1);
     expect(visibleH).toBeGreaterThanOrEqual(smallFace.box.height - 1);
+  });
+
+  it("按原图比例判断是否启用受限智能裁剪", () => {
+    expect(shouldApplySmartCropByImageAspect(700, 1200)).toBe(true); // 竖图 > 1.5
+    expect(shouldApplySmartCropByImageAspect(1600, 900)).toBe(true); // 横图 < 0.667
+    expect(shouldApplySmartCropByImageAspect(1000, 1400)).toBe(false);
+    expect(shouldApplySmartCropByImageAspect(1400, 1000)).toBe(false);
   });
 });

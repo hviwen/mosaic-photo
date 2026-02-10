@@ -514,8 +514,19 @@ watch(
       const photo = store.photos.find(p => p.id === id);
       const reference = photo ? store.getCropModeReferenceCrop(id) : null;
       if (photo && reference) {
-        // 进入裁剪时,使用照片当前裁剪区域（而非从 0,0 开始），保留当前视图并允许双向缩放。
-        cropDraft.value = { ...photo.crop };
+        // 进入裁剪时保持进入前裁剪视图，保证 Shift+滚轮可双向缩放。
+        const safeX = clamp(reference.x, 0, Math.max(0, photo.imageWidth - 1));
+        const safeY = clamp(reference.y, 0, Math.max(0, photo.imageHeight - 1));
+        cropDraft.value = {
+          x: safeX,
+          y: safeY,
+          width: clamp(reference.width, 1, Math.max(1, photo.imageWidth - safeX)),
+          height: clamp(
+            reference.height,
+            1,
+            Math.max(1, photo.imageHeight - safeY),
+          ),
+        };
       } else {
         cropDraft.value = photo ? { ...photo.crop } : null;
       }
@@ -770,6 +781,7 @@ function handlePointerDown(e: PointerEvent) {
   const photo = findPhotoAt(x, y);
   if (photo) {
     store.selectPhoto(photo.id);
+    if (!store.allowPhotoMove) return;
     pointerMode.value = {
       kind: "drag",
       id: photo.id,
@@ -800,6 +812,7 @@ function handlePointerMove(e: PointerEvent) {
   const { x, y } = screenToCanvas(e.clientX, e.clientY);
 
   if (mode.kind === "drag") {
+    if (!store.allowPhotoMove) return;
     const newCx = x - mode.dx;
     const newCy = y - mode.dy;
     store.updatePhoto(mode.id, { cx: newCx, cy: newCy });
@@ -1242,6 +1255,7 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
 }
 
 function drawSelection(c: CanvasRenderingContext2D, photo: PhotoEntity) {
+  if (store.cropModePhotoId) return;
   c.save();
   c.translate(photo.cx, photo.cy);
   c.rotate(photo.rotation);

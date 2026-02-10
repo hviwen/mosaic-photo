@@ -170,6 +170,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
   const photos = ref<PhotoEntity[]>([]);
   const selectedPhotoId = ref<string | null>(null);
   const cropModePhotoId = ref<string | null>(null);
+  const allowPhotoMove = ref<boolean>(false);
   const exportFormat = ref<ExportFormat>("png");
   const exportQuality = ref<number>(0.95);
   const exportResolution = ref<ExportResolutionPreset>("original");
@@ -1507,6 +1508,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     photos,
     selectedPhotoId,
     cropModePhotoId,
+    allowPhotoMove,
     exportFormat,
     exportQuality,
     exportResolution,

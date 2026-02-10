@@ -103,8 +103,14 @@
               <div v-if="isFaceDetecting" class="text-caption mt-2">
                 人脸检测中...
               </div>
-              <div v-else class="text-caption mt-2">
+              <div v-else-if="faceBoxes.length > 0" class="text-caption mt-2">
                 已检测到 {{ faceBoxes.length }} 个人脸区域
+              </div>
+              <div v-else class="text-caption mt-2">未检测到人脸区域</div>
+              <div
+                v-if="!isFaceDetecting && faceBoxes.length === 0"
+                class="text-caption mt-1">
+                {{ faceDetectHintText }}
               </div>
               <div class="text-caption mt-2">
                 保持宽高比等比缩放展示（不受裁剪/滤镜影响）
@@ -130,7 +136,7 @@
                 @click="enterCropMode">
                 裁剪照片
               </v-btn>
-              <div v-else class="d-flex" style="gap: 0.5rem">
+              <div v-else class="d-flex flex-column mt-2" style="gap: 0.5rem">
                 <v-btn
                   block
                   color="success"
@@ -150,7 +156,7 @@
               </div>
               <div
                 v-if="isSelectedInCropMode"
-                class="d-flex mt-2"
+                class="d-flex flex-column mt-2"
                 style="gap: 0.5rem">
                 <v-btn
                   block
@@ -213,6 +219,12 @@
               位置
             </v-expansion-panel-title>
             <v-expansion-panel-text>
+              <v-switch
+                v-model="store.allowPhotoMove"
+                label="允许移动照片"
+                density="compact"
+                hide-details
+                class="mb-2" />
               <v-text-field
                 :model-value="Math.round(selectedPhoto.cx)"
                 type="number"
@@ -480,6 +492,19 @@ const isFaceDetecting = computed(() => {
   if (!photo) return false;
   const state = getSmartDetectionsState(photo.id);
   return state.facePending && faceBoxes.value.length === 0;
+});
+
+const isFaceDetectorSupported = computed(() => {
+  if (typeof window === "undefined") return false;
+  return "FaceDetector" in window;
+});
+
+const faceDetectHintText = computed(() => {
+  if (faceBoxes.value.length > 0 || isFaceDetecting.value) return "";
+  if (!isFaceDetectorSupported.value) {
+    return "当前浏览器不支持 FaceDetector API，请使用最新版 Chrome/Edge。";
+  }
+  return "请确保原图中包含人脸，或调整裁剪区域后重试。";
 });
 
 const scalePercent = computed(() =>
@@ -775,6 +800,9 @@ watch(
       transformTimer.value = null;
     }
     if (!id || !selectedPhoto.value) return;
+    if (!expandedPanels.value.includes("crop")) {
+      expandedPanels.value = [...expandedPanels.value, "crop"];
+    }
     adjustDraft.value = { ...selectedPhoto.value.adjustments };
     adjustStart.value = { ...selectedPhoto.value.adjustments };
     scheduleOriginPreviewRender();
@@ -846,7 +874,7 @@ function drawOriginPreview() {
 
   const scaleX = drawW / imageW;
   const scaleY = drawH / imageH;
-  ctx.strokeStyle = "red";
+  ctx.strokeStyle = "#ff0000";
   ctx.lineWidth = 2;
   for (const box of faceBoxes.value) {
     ctx.strokeRect(

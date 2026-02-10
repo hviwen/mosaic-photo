@@ -92,32 +92,35 @@ describe("calculateSmartCrop", () => {
     expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
   });
 
-  // 优化1：非极端比例图片，不触发“比例受限”智能裁剪
-  it("比例在范围内的竖图不强制限制目标比例", () => {
+  // 优化1：严格比例限制（无例外）
+  it("比例在范围内的竖图也会被限制到 4:6 ~ 6:4", () => {
     const image = { width: 1000, height: 1400 }; // height/width = 1.4
     const targetAspect = 2.0;
 
     const crop = calculateSmartCrop(image, targetAspect, []);
     const actual = crop.width / crop.height;
-    expect(approx(actual, targetAspect, 1e-2)).toBe(true);
+    expect(actual).toBeLessThanOrEqual(1.5 + 1e-2);
+    expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
   });
 
-  it("比例在范围内的横图不强制限制目标比例", () => {
+  it("比例在范围内的横图也会被限制到 4:6 ~ 6:4", () => {
     const image = { width: 1400, height: 1000 }; // height/width = 0.714
     const targetAspect = 0.5;
 
     const crop = calculateSmartCrop(image, targetAspect, []);
     const actual = crop.width / crop.height;
-    expect(approx(actual, targetAspect, 1e-2)).toBe(true);
+    expect(actual).toBeLessThanOrEqual(1.5 + 1e-2);
+    expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
   });
 
-  it("正方形图片默认不触发比例受限逻辑", () => {
+  it("正方形图片也会被限制到 4:6 ~ 6:4", () => {
     const image = { width: 1000, height: 1000 }; // 正方形
     const targetAspect = 2.0;
 
     const crop = calculateSmartCrop(image, targetAspect, []);
     const actual = crop.width / crop.height;
-    expect(approx(actual, targetAspect, 1e-2)).toBe(true);
+    expect(actual).toBeLessThanOrEqual(1.5 + 1e-2);
+    expect(actual).toBeGreaterThanOrEqual(1 / 1.5 - 1e-2);
   });
 
   // 优化1：人脸最小尺寸保证 100×100

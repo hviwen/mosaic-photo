@@ -286,10 +286,10 @@ export function clampSmartCropTargetAspect(
   imageWidth: number,
   imageHeight: number,
 ): number {
+  void imageWidth;
+  void imageHeight;
   if (!isFinite(targetAspect) || targetAspect <= 0) return targetAspect;
-  if (!shouldApplySmartCropByImageAspect(imageWidth, imageHeight)) {
-    return targetAspect;
-  }
+  // 严格限制自动裁剪比例到 4:6 ~ 6:4（无例外）
   return clamp(targetAspect, SMART_CROP_ASPECT_MIN, SMART_CROP_ASPECT_MAX);
 }
 
@@ -915,7 +915,7 @@ export function calculateSmartCrop(
 
   if (!isFinite(targetAspect) || targetAspect <= 0) return { ...base };
 
-  // 按原图宽高比决定是否限制目标比例（仅对极端长图生效）。
+  // 严格限制自动裁剪比例到 4:6 ~ 6:4，避免过度裁剪导致内容显示不全。
   const clampedAspect = clampSmartCropTargetAspect(
     targetAspect,
     imageWidth,

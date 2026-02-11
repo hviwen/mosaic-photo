@@ -140,3 +140,6 @@ vite.config.ts.timestamp-*
 
 # MediaPipe training
 .training/
+
+# local template files
+.template/

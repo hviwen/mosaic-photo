@@ -5,9 +5,14 @@ import { centerCropToAspect } from "@/utils/image";
 import {
   SMART_CROP_ASPECT_MAX,
   SMART_CROP_ASPECT_MIN,
-  shouldApplySmartCropByImageAspect,
   type SmartDetection,
 } from "@/utils/smartCrop";
+import {
+  assignPhotosToTiles,
+  buildFillArrangePhotoStrategy,
+  isFillOrientationReversed,
+} from "@/utils/fillArrangeAssignment";
+import { validateFillArrangePlacements } from "@/utils/fillArrangeValidation";
 
 type FillArrangeOptions = {
   seed?: number;
@@ -42,8 +47,6 @@ function clamp(num: number, min: number, max: number): number {
 
 type FillRect = { x: number; y: number; w: number; h: number };
 
-const FILL_MIN_SCALE = 0.1;
-const FILL_MAX_SCALE = 2.0;
 const CENTER_BIAS_WEIGHT = 0.55;
 const EDGE_BIAS_WEIGHT = 0.14;
 
@@ -51,7 +54,10 @@ function splitLength(total: number, parts: number): number[] {
   if (parts <= 0) return [];
   const base = Math.floor(total / parts);
   const remainder = total - base * parts;
-  return Array.from({ length: parts }, (_, i) => base + (i < remainder ? 1 : 0));
+  return Array.from(
+    { length: parts },
+    (_, i) => base + (i < remainder ? 1 : 0),
+  );
 }
 
 function buildFallbackGridTiles(
@@ -138,7 +144,17 @@ function partitionRectToTiles(
     };
 
     const rectAspect = rect.w / Math.max(1, rect.h);
-    const preferVertical = rectAspect >= 1;
+    // 优先选择能让子 tile 比例更接近 [4:6, 6:4] 的切分方向。
+    let preferVertical: boolean;
+    if (rectAspect > SMART_CROP_ASPECT_MAX) {
+      // 太宽：优先竖切（减少宽度）
+      preferVertical = true;
+    } else if (rectAspect < SMART_CROP_ASPECT_MIN) {
+      // 太高：优先横切（减少高度）
+      preferVertical = false;
+    } else {
+      preferVertical = rectAspect >= 1;
+    }
     let split =
       trySplit(preferVertical) ??
       trySplit(!preferVertical) ??
@@ -162,32 +178,10 @@ function partitionRectToTiles(
       }
     }
 
-    return [
-      ...splitRec(split.a, leftCount),
-      ...splitRec(split.b, rightCount),
-    ];
+    return [...splitRec(split.a, leftCount), ...splitRec(split.b, rightCount)];
   };
 
   return splitRec(root, count);
-}
-
-function recenterCropWithinBase(
-  base: CropRect,
-  preferred: CropRect,
-  targetWidth: number,
-  targetHeight: number,
-): CropRect {
-  const safeWidth = clamp(targetWidth, 1, base.width);
-  const safeHeight = clamp(targetHeight, 1, base.height);
-  const centerX = preferred.x + preferred.width / 2;
-  const centerY = preferred.y + preferred.height / 2;
-  const x = clamp(centerX - safeWidth / 2, base.x, base.x + base.width - safeWidth);
-  const y = clamp(
-    centerY - safeHeight / 2,
-    base.y,
-    base.y + base.height - safeHeight,
-  );
-  return { x, y, width: safeWidth, height: safeHeight };
 }
 
 function fillArrangePhotosWorker(
@@ -202,122 +196,236 @@ function fillArrangePhotosWorker(
   const ratioMin = clamp(options.splitRatioMin ?? 0.38, 0.2, 0.49);
   const ratioMax = clamp(options.splitRatioMax ?? 0.62, 0.51, 0.8);
 
-  // Simple deterministic RNG when seed is provided.
-  let seed = options.seed ?? Math.floor(Math.random() * 1_000_000_000);
-  const rand = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 2 ** 32;
-  };
-
-  const root: FillRect = { x: 0, y: 0, w: canvasW, h: canvasH };
-  const partitioned = partitionRectToTiles(root, n, rand, ratioMin, ratioMax);
-  const tiles =
-    partitioned.length === n
-      ? partitioned
-      : buildFallbackGridTiles(n, canvasW, canvasH);
-
-  console.log(
-    "[LayoutDebug] fillArrangePhotosWorker: Created",
-    tiles.length,
-    "tiles, needed",
-    n,
-  );
-
-  // Greedy match:
-  // 1) 保留“宽高比越接近越优先”
-  // 2) 叠加中心优先，中心 tile 更倾向 1:1 照片
-  const photosLeft = photos.map(photo => {
-    const photoAspect = photo.crop.width / Math.max(1, photo.crop.height);
-    const deviation = Math.abs(Math.log(Math.max(1e-6, photoAspect)));
-    return { photo, deviation, aspect: photoAspect };
-  });
+  const photosWithStrategy = photos.map(photo => ({
+    photo,
+    ...buildFillArrangePhotoStrategy(photo.imageWidth, photo.imageHeight),
+  }));
+  const assignmentPhotos = photosWithStrategy.map(item => ({
+    id: item.photo.id,
+    sourceAspect: item.sourceAspect,
+    preferredAspect: item.preferredAspect,
+    orientation: item.orientation,
+    isExtreme: item.isExtreme,
+  }));
+  const assignmentOptions = {
+    nonExtremeWeight: 1.1,
+    centerBiasWeight: CENTER_BIAS_WEIGHT,
+    edgeBiasWeight: EDGE_BIAS_WEIGHT,
+    orientationPenalty: 40,
+  } as const;
 
   const canvasCx = canvasW / 2;
   const canvasCy = canvasH / 2;
   const maxDist = Math.sqrt(canvasCx * canvasCx + canvasCy * canvasCy) || 1;
-
-  const tileOrder = [...tiles]
-    .map(tile => {
-      const tileCx = tile.x + tile.w / 2;
-      const tileCy = tile.y + tile.h / 2;
-      const dist = Math.sqrt(
-        (tileCx - canvasCx) ** 2 + (tileCy - canvasCy) ** 2,
-      );
-      return { tile, dist: dist / maxDist };
-    })
-    .sort((a, b) => a.dist - b.dist);
-
-  const placements: Placement[] = [];
-  for (const { tile, dist } of tileOrder) {
-    if (photosLeft.length === 0) break;
-
-    const ta = tile.w / Math.max(1, tile.h);
-    let bestIdx = 0;
-    let bestCost = Infinity;
-    for (let i = 0; i < photosLeft.length; i++) {
-      const item = photosLeft[i];
-      const aspectDelta = Math.abs(
-        Math.log(Math.max(1e-6, item.aspect)) - Math.log(Math.max(1e-6, ta)),
-      );
-      const centerPenalty = CENTER_BIAS_WEIGHT * (1 - dist) * item.deviation;
-      const edgeBonus = EDGE_BIAS_WEIGHT * dist * item.deviation;
-      const cost = aspectDelta + centerPenalty - edgeBonus;
-      if (cost < bestCost) {
-        bestCost = cost;
-        bestIdx = i;
-      }
-    }
-
-    const p = photosLeft.splice(bestIdx, 1)[0].photo;
-    const shouldSmartCrop = shouldApplySmartCropByImageAspect(
-      p.imageWidth,
-      p.imageHeight,
-    ) && ta >= SMART_CROP_ASPECT_MIN &&
-      ta <= SMART_CROP_ASPECT_MAX;
-    const detections = shouldSmartCrop ? p.detections : undefined;
-    let nextCrop = centerCropToAspect(
-      p.crop,
-      ta,
-      p.imageWidth,
-      p.imageHeight,
-      detections && detections.length > 0 ? { detections } : undefined,
-    );
-    const calculatedScale = tile.w / Math.max(1, nextCrop.width);
-    const clampedScale = Math.max(
-      FILL_MIN_SCALE,
-      Math.min(FILL_MAX_SCALE, calculatedScale),
-    );
-    let scale = clampedScale;
-
-    if (scale < calculatedScale - 1e-6) {
-      const targetCropW = tile.w / scale;
-      const targetCropH = tile.h / scale;
-      if (targetCropW <= p.crop.width + 1e-6 && targetCropH <= p.crop.height + 1e-6) {
-        nextCrop = recenterCropWithinBase(
-          p.crop,
-          nextCrop,
-          targetCropW,
-          targetCropH,
+  const createTileOrder = (tiles: FillRect[]) =>
+    [...tiles]
+      .map(tile => {
+        const tileCx = tile.x + tile.w / 2;
+        const tileCy = tile.y + tile.h / 2;
+        const dist = Math.sqrt(
+          (tileCx - canvasCx) ** 2 + (tileCy - canvasCy) ** 2,
         );
-      } else {
-        scale = calculatedScale;
+        return { tile, dist: dist / maxDist };
+      })
+      .sort((a, b) => a.dist - b.dist);
+  const baseSeed = options.seed ?? Math.floor(Math.random() * 1_000_000_000);
+  const maxPartitionAttempts = 8;
+  let bestCandidate: {
+    tileOrder: Array<{ tile: FillRect; dist: number }>;
+    tileToPhotoIndex: number[];
+    orientationViolations: number;
+    centerCost: number;
+    nonExtremeLoss: number;
+    weightedLoss: number;
+  } | null = null;
+
+  const root: FillRect = { x: 0, y: 0, w: canvasW, h: canvasH };
+  for (let attempt = 0; attempt < maxPartitionAttempts; attempt++) {
+    let seed = (baseSeed + attempt * 224_682_2519) >>> 0;
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 2 ** 32;
+    };
+
+    const partitioned = partitionRectToTiles(root, n, rand, ratioMin, ratioMax);
+    const tiles =
+      partitioned.length === n
+        ? partitioned
+        : buildFallbackGridTiles(n, canvasW, canvasH);
+
+    const tileOrder = createTileOrder(tiles);
+
+    const tileToPhotoIndex = assignPhotosToTiles(
+      assignmentPhotos,
+      tileOrder.map(({ tile, dist }) => ({
+        aspect: tile.w / Math.max(1, tile.h),
+        dist,
+      })),
+      assignmentOptions,
+    );
+
+    let orientationViolations = 0;
+    let centerCost = 0;
+    let nonExtremeLoss = 0;
+    let weightedLoss = 0;
+    for (let tileIdx = 0; tileIdx < tileOrder.length; tileIdx++) {
+      const item = assignmentPhotos[tileToPhotoIndex[tileIdx]];
+      const dist = tileOrder[tileIdx].dist;
+      const tileAspect =
+        tileOrder[tileIdx].tile.w / Math.max(1, tileOrder[tileIdx].tile.h);
+      if (isFillOrientationReversed(item.orientation, tileAspect)) {
+        orientationViolations++;
+      }
+      const deviation = Math.abs(Math.log(Math.max(1e-6, item.sourceAspect)));
+      centerCost +=
+        CENTER_BIAS_WEIGHT * (1 - dist) * deviation -
+        EDGE_BIAS_WEIGHT * dist * deviation;
+      const deltaPreferred = Math.abs(
+        Math.log(Math.max(1e-6, item.preferredAspect)) -
+          Math.log(Math.max(1e-6, tileAspect)),
+      );
+      weightedLoss += (item.isExtreme ? 1 : 1.1) * deltaPreferred;
+      if (!item.isExtreme) {
+        nonExtremeLoss += Math.abs(
+          Math.log(Math.max(1e-6, item.sourceAspect)) -
+            Math.log(Math.max(1e-6, tileAspect)),
+        );
       }
     }
 
-    if (scale > calculatedScale + 1e-6) {
-      const targetCropW = tile.w / scale;
-      const targetCropH = tile.h / scale;
-      nextCrop = recenterCropWithinBase(p.crop, nextCrop, targetCropW, targetCropH);
+    const candidate = {
+      tileOrder,
+      tileToPhotoIndex,
+      orientationViolations,
+      centerCost,
+      nonExtremeLoss,
+      weightedLoss,
+    };
+    if (!bestCandidate) {
+      bestCandidate = candidate;
+      continue;
     }
+    const isBetter =
+      candidate.orientationViolations < bestCandidate.orientationViolations ||
+      (candidate.orientationViolations ===
+        bestCandidate.orientationViolations &&
+        (candidate.centerCost < bestCandidate.centerCost ||
+          (candidate.centerCost === bestCandidate.centerCost &&
+            (candidate.nonExtremeLoss < bestCandidate.nonExtremeLoss ||
+              (candidate.nonExtremeLoss === bestCandidate.nonExtremeLoss &&
+                candidate.weightedLoss < bestCandidate.weightedLoss)))));
+    if (isBetter) bestCandidate = candidate;
+  }
 
-    placements.push({
-      id: p.id,
-      cx: tile.x + tile.w / 2,
-      cy: tile.y + tile.h / 2,
-      scale,
-      rotation: 0,
-      crop: nextCrop,
-    });
+  const tileOrder = bestCandidate
+    ? bestCandidate.tileOrder
+    : createTileOrder(buildFallbackGridTiles(n, canvasW, canvasH));
+  const tileToPhotoIndex = bestCandidate
+    ? bestCandidate.tileToPhotoIndex
+    : assignPhotosToTiles(
+        assignmentPhotos,
+        tileOrder.map(({ tile, dist }) => ({
+          aspect: tile.w / Math.max(1, tile.h),
+          dist,
+        })),
+        assignmentOptions,
+      );
+
+  console.log(
+    "[LayoutDebug] fillArrangePhotosWorker: Created",
+    tileOrder.length,
+    "tiles, needed",
+    n,
+  );
+
+  const buildPlacementsFor = (
+    currentTileOrder: Array<{ tile: FillRect; dist: number }>,
+    currentTileToPhotoIndex: number[],
+  ): Placement[] => {
+    const placements: Placement[] = [];
+    for (let tileIdx = 0; tileIdx < currentTileOrder.length; tileIdx++) {
+      const { tile } = currentTileOrder[tileIdx];
+      const assignedPhoto =
+        photosWithStrategy[currentTileToPhotoIndex[tileIdx]];
+      if (!assignedPhoto) return [];
+      const p = assignedPhoto.photo;
+      const ta = tile.w / Math.max(1, tile.h);
+      // Always pass detections if available – crop limiting is handled internally
+      const detections = p.detections;
+      const nextCrop = centerCropToAspect(
+        p.crop,
+        ta,
+        p.imageWidth,
+        p.imageHeight,
+        detections && detections.length > 0 ? { detections } : undefined,
+      );
+      if (!isFinite(nextCrop.width) || !isFinite(nextCrop.height)) return [];
+      if (nextCrop.width <= 0 || nextCrop.height <= 0) return [];
+
+      // Cover mode: ensure photo fully covers tile even if crop aspect differs
+      const scale = Math.max(tile.w / nextCrop.width, tile.h / nextCrop.height);
+      placements.push({
+        id: p.id,
+        cx: tile.x + tile.w / 2,
+        cy: tile.y + tile.h / 2,
+        scale,
+        rotation: 0,
+        crop: nextCrop,
+      });
+    }
+    return placements;
+  };
+
+  const validatePlacements = (
+    currentTileOrder: Array<{ tile: FillRect; dist: number }>,
+    placements: Placement[],
+  ) => {
+    if (placements.length !== currentTileOrder.length) {
+      return { ok: false as const, reason: "placement count mismatch" };
+    }
+    return validateFillArrangePlacements(
+      currentTileOrder.map((item, idx) => ({
+        tile: item.tile,
+        placement: placements[idx],
+      })),
+      canvasW,
+      canvasH,
+      { coverMode: true },
+    );
+  };
+
+  let placements = buildPlacementsFor(tileOrder, tileToPhotoIndex);
+  let validation = validatePlacements(tileOrder, placements);
+
+  if (!validation.ok) {
+    const fallbackTileOrder = createTileOrder(
+      buildFallbackGridTiles(n, canvasW, canvasH),
+    );
+    const fallbackTileToPhotoIndex = assignPhotosToTiles(
+      assignmentPhotos,
+      fallbackTileOrder.map(({ tile, dist }) => ({
+        aspect: tile.w / Math.max(1, tile.h),
+        dist,
+      })),
+      assignmentOptions,
+    );
+    const fallbackPlacements = buildPlacementsFor(
+      fallbackTileOrder,
+      fallbackTileToPhotoIndex,
+    );
+    const fallbackValidation = validatePlacements(
+      fallbackTileOrder,
+      fallbackPlacements,
+    );
+    if (fallbackValidation.ok) {
+      placements = fallbackPlacements;
+      validation = fallbackValidation;
+    } else {
+      console.warn(
+        "[LayoutDebug] fillArrangePhotosWorker: fallback validation failed:",
+        fallbackValidation.reason,
+      );
+    }
   }
 
   console.log(

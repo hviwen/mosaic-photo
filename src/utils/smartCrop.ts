@@ -286,11 +286,24 @@ export function clampSmartCropTargetAspect(
   imageWidth: number,
   imageHeight: number,
 ): number {
-  void imageWidth;
-  void imageHeight;
   if (!isFinite(targetAspect) || targetAspect <= 0) return targetAspect;
-  // 严格限制自动裁剪比例到 4:6 ~ 6:4（无例外）
-  return clamp(targetAspect, SMART_CROP_ASPECT_MIN, SMART_CROP_ASPECT_MAX);
+  const safeW = Math.max(1, imageWidth);
+  const safeH = Math.max(1, imageHeight);
+  const srcAspect = safeW / safeH;
+
+  if (srcAspect < SMART_CROP_ASPECT_MIN) {
+    return clamp(targetAspect, SMART_CROP_ASPECT_MIN, 1);
+  }
+  if (srcAspect > SMART_CROP_ASPECT_MAX) {
+    return clamp(targetAspect, 1, SMART_CROP_ASPECT_MAX);
+  }
+
+  // Non-extreme images: allow limited deviation from srcAspect (max 25%).
+  // This prevents a 1:1 image being cropped to 1.9:1, for instance.
+  const MAX_ASPECT_DEVIATION = 0.25;
+  const lo = srcAspect / (1 + MAX_ASPECT_DEVIATION);
+  const hi = srcAspect * (1 + MAX_ASPECT_DEVIATION);
+  return clamp(targetAspect, lo, hi);
 }
 
 function resolveSourceSize(source: CanvasImageSource): Size | null {
@@ -877,12 +890,21 @@ function ensureFaceVisibilityCrop(
   }
 
   // 比例约束无法满足时，仍保持比例不变，并尽可能放大到能覆盖最多人脸区域。
-  const finalAspectSize = makeAspectSizeContaining(required.width, required.height);
+  const finalAspectSize = makeAspectSizeContaining(
+    required.width,
+    required.height,
+  );
   candidate = placeCropToContain(
     base,
     required,
-    Math.min(maxAspectCrop.width, Math.max(initialCrop.width, finalAspectSize.width)),
-    Math.min(maxAspectCrop.height, Math.max(initialCrop.height, finalAspectSize.height)),
+    Math.min(
+      maxAspectCrop.width,
+      Math.max(initialCrop.width, finalAspectSize.width),
+    ),
+    Math.min(
+      maxAspectCrop.height,
+      Math.max(initialCrop.height, finalAspectSize.height),
+    ),
     anchor,
   );
 
@@ -915,7 +937,10 @@ export function calculateSmartCrop(
 
   if (!isFinite(targetAspect) || targetAspect <= 0) return { ...base };
 
-  // 严格限制自动裁剪比例到 4:6 ~ 6:4，避免过度裁剪导致内容显示不全。
+  // 按原图比例策略收敛目标比例：
+  // - 极端竖图：收敛到 [4:6, 1]
+  // - 极端横图：收敛到 [1, 6:4]
+  // - 非极端：保持原图比例
   const clampedAspect = clampSmartCropTargetAspect(
     targetAspect,
     imageWidth,

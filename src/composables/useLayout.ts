@@ -1,10 +1,9 @@
-import type { PhotoEntity, ArrangeOptions, Placement, CropRect } from "@/types";
+import type { PhotoEntity, ArrangeOptions, Placement } from "@/types";
 import { centerCropToAspect } from "@/utils/image";
 import {
   getSmartDetections,
   SMART_CROP_ASPECT_MAX,
   SMART_CROP_ASPECT_MIN,
-  shouldApplySmartCropByImageAspect,
 } from "@/utils/smartCrop";
 import {
   randomInRange,
@@ -14,6 +13,12 @@ import {
   photoToOBB,
   obbIntersects,
 } from "@/utils/math";
+import {
+  assignPhotosToTiles,
+  buildFillArrangePhotoStrategy,
+  isFillOrientationReversed,
+} from "@/utils/fillArrangeAssignment";
+import { validateFillArrangePlacements } from "@/utils/fillArrangeValidation";
 
 /**
  * 计算照片面积
@@ -254,10 +259,16 @@ export interface FillArrangeOptions {
   splitRatioMax?: number;
 }
 
+export interface FillArrangeResult {
+  placements: Placement[];
+  /** Actual canvas width used (may differ from input by up to ±100px). */
+  canvasW: number;
+  /** Actual canvas height used (may differ from input by up to ±100px). */
+  canvasH: number;
+}
+
 type FillRect = { x: number; y: number; w: number; h: number };
 
-const FILL_MIN_SCALE = 0.1;
-const FILL_MAX_SCALE = 2.0;
 const CENTER_BIAS_WEIGHT = 0.55;
 const EDGE_BIAS_WEIGHT = 0.14;
 
@@ -400,29 +411,6 @@ function partitionRectToTiles(
   return splitRec(root, count);
 }
 
-function recenterCropWithinBase(
-  base: CropRect,
-  preferred: CropRect,
-  targetWidth: number,
-  targetHeight: number,
-): CropRect {
-  const safeWidth = clamp(targetWidth, 1, base.width);
-  const safeHeight = clamp(targetHeight, 1, base.height);
-  const centerX = preferred.x + preferred.width / 2;
-  const centerY = preferred.y + preferred.height / 2;
-  const x = clamp(
-    centerX - safeWidth / 2,
-    base.x,
-    base.x + base.width - safeWidth,
-  );
-  const y = clamp(
-    centerY - safeHeight / 2,
-    base.y,
-    base.y + base.height - safeHeight,
-  );
-  return { x, y, width: safeWidth, height: safeHeight };
-}
-
 /**
  * 画布“铺满式”自动排版：
  * - 无重叠
@@ -437,9 +425,9 @@ export function fillArrangePhotos(
   canvasW: number,
   canvasH: number,
   options: FillArrangeOptions = {},
-): Placement[] {
+): FillArrangeResult {
   const n = photos.length;
-  if (n === 0) return [];
+  if (n === 0) return { placements: [], canvasW, canvasH };
   console.log(
     "[LayoutDebug] fillArrangePhotos: Input",
     n,
@@ -452,135 +440,300 @@ export function fillArrangePhotos(
   const ratioMin = clamp(options.splitRatioMin ?? 0.38, 0.2, 0.49);
   const ratioMax = clamp(options.splitRatioMax ?? 0.62, 0.51, 0.8);
 
-  // Simple deterministic RNG when seed is provided.
-  let seed = options.seed ?? Math.floor(Math.random() * 1_000_000_000);
-  const rand = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 2 ** 32;
+  const photosWithStrategy = photos.map(photo => ({
+    photo,
+    ...buildFillArrangePhotoStrategy(photo.imageWidth, photo.imageHeight),
+  }));
+
+  const assignmentPhotos = photosWithStrategy.map(item => ({
+    id: item.photo.id,
+    sourceAspect: item.sourceAspect,
+    preferredAspect: item.preferredAspect,
+    orientation: item.orientation,
+    isExtreme: item.isExtreme,
+  }));
+  const assignmentOptions = {
+    nonExtremeWeight: 1.1,
+    centerBiasWeight: CENTER_BIAS_WEIGHT,
+    edgeBiasWeight: EDGE_BIAS_WEIGHT,
+    orientationPenalty: 40,
+  } as const;
+
+  const baseSeed = options.seed ?? Math.floor(Math.random() * 1_000_000_000);
+  const maxPartitionAttempts = 8;
+
+  // Canvas adaptive adjustment: try the original size + several offsets (±100px max)
+  // to find a canvas size that produces better tile–photo aspect matching.
+  const CANVAS_ADJUST_MAX = 100;
+  const CANVAS_ADJUST_STEP = 50;
+  const canvasSizes: Array<{ w: number; h: number }> = [
+    { w: canvasW, h: canvasH },
+  ];
+  for (
+    let dw = -CANVAS_ADJUST_MAX;
+    dw <= CANVAS_ADJUST_MAX;
+    dw += CANVAS_ADJUST_STEP
+  ) {
+    for (
+      let dh = -CANVAS_ADJUST_MAX;
+      dh <= CANVAS_ADJUST_MAX;
+      dh += CANVAS_ADJUST_STEP
+    ) {
+      if (dw === 0 && dh === 0) continue;
+      const w = canvasW + dw;
+      const h = canvasH + dh;
+      if (w > 0 && h > 0) canvasSizes.push({ w, h });
+    }
+  }
+
+  type Candidate = {
+    tileOrder: Array<{ tile: FillRect; dist: number }>;
+    tileToPhotoIndex: number[];
+    orientationViolations: number;
+    centerCost: number;
+    nonExtremeLoss: number;
+    weightedLoss: number;
+    cw: number;
+    ch: number;
   };
 
-  const root: FillRect = { x: 0, y: 0, w: canvasW, h: canvasH };
-  const partitioned = partitionRectToTiles(root, n, rand, ratioMin, ratioMax);
-  const tiles =
-    partitioned.length === n
-      ? partitioned
-      : buildFallbackGridTiles(n, canvasW, canvasH);
+  let bestCandidate: Candidate | null = null;
+
+  const isCandidateBetter = (a: Candidate, b: Candidate): boolean =>
+    a.orientationViolations < b.orientationViolations ||
+    (a.orientationViolations === b.orientationViolations &&
+      (a.centerCost < b.centerCost ||
+        (a.centerCost === b.centerCost &&
+          (a.nonExtremeLoss < b.nonExtremeLoss ||
+            (a.nonExtremeLoss === b.nonExtremeLoss &&
+              a.weightedLoss < b.weightedLoss)))));
+
+  for (const { w: cW, h: cH } of canvasSizes) {
+    const canvasCx = cW / 2;
+    const canvasCy = cH / 2;
+    const maxDist = Math.sqrt(canvasCx * canvasCx + canvasCy * canvasCy) || 1;
+    const createTileOrderForCanvas = (tiles: FillRect[]) =>
+      [...tiles]
+        .map(tile => {
+          const tileCx = tile.x + tile.w / 2;
+          const tileCy = tile.y + tile.h / 2;
+          const dist = Math.sqrt(
+            (tileCx - canvasCx) ** 2 + (tileCy - canvasCy) ** 2,
+          );
+          return { tile, dist: dist / maxDist };
+        })
+        .sort((a, b) => a.dist - b.dist);
+
+    const root: FillRect = { x: 0, y: 0, w: cW, h: cH };
+    for (let attempt = 0; attempt < maxPartitionAttempts; attempt++) {
+      let seed = (baseSeed + attempt * 224_682_2519) >>> 0;
+      const rand = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        return seed / 2 ** 32;
+      };
+
+      const partitioned = partitionRectToTiles(
+        root,
+        n,
+        rand,
+        ratioMin,
+        ratioMax,
+      );
+      const tiles =
+        partitioned.length === n
+          ? partitioned
+          : buildFallbackGridTiles(n, cW, cH);
+
+      const tileOrder = createTileOrderForCanvas(tiles);
+
+      const tileToPhotoIndex = assignPhotosToTiles(
+        assignmentPhotos,
+        tileOrder.map(({ tile, dist }) => ({
+          aspect: tile.w / Math.max(1, tile.h),
+          dist,
+        })),
+        assignmentOptions,
+      );
+
+      let orientationViolations = 0;
+      let centerCost = 0;
+      let nonExtremeLoss = 0;
+      let weightedLoss = 0;
+      for (let tileIdx = 0; tileIdx < tileOrder.length; tileIdx++) {
+        const item = assignmentPhotos[tileToPhotoIndex[tileIdx]];
+        const dist = tileOrder[tileIdx].dist;
+        const tileAspect =
+          tileOrder[tileIdx].tile.w / Math.max(1, tileOrder[tileIdx].tile.h);
+        if (isFillOrientationReversed(item.orientation, tileAspect)) {
+          orientationViolations++;
+        }
+        const deviation = Math.abs(Math.log(Math.max(1e-6, item.sourceAspect)));
+        centerCost +=
+          CENTER_BIAS_WEIGHT * (1 - dist) * deviation -
+          EDGE_BIAS_WEIGHT * dist * deviation;
+        const deltaPreferred = Math.abs(
+          Math.log(Math.max(1e-6, item.preferredAspect)) -
+            Math.log(Math.max(1e-6, tileAspect)),
+        );
+        weightedLoss += (item.isExtreme ? 1 : 1.1) * deltaPreferred;
+        if (!item.isExtreme) {
+          nonExtremeLoss += Math.abs(
+            Math.log(Math.max(1e-6, item.sourceAspect)) -
+              Math.log(Math.max(1e-6, tileAspect)),
+          );
+        }
+      }
+
+      const candidate: Candidate = {
+        tileOrder,
+        tileToPhotoIndex,
+        orientationViolations,
+        centerCost,
+        nonExtremeLoss,
+        weightedLoss,
+        cw: cW,
+        ch: cH,
+      };
+      if (!bestCandidate || isCandidateBetter(candidate, bestCandidate)) {
+        bestCandidate = candidate;
+      }
+    }
+  }
+
+  // Use the winning canvas dimensions
+  const cw = bestCandidate?.cw ?? canvasW;
+  const ch = bestCandidate?.ch ?? canvasH;
+  const canvasCx = cw / 2;
+  const canvasCy = cw / 2;
+  const maxDist = Math.sqrt(canvasCx * canvasCx + canvasCy * canvasCy) || 1;
+  const createTileOrder = (tiles: FillRect[]) =>
+    [...tiles]
+      .map(tile => {
+        const tileCx = tile.x + tile.w / 2;
+        const tileCy = tile.y + tile.h / 2;
+        const dist = Math.sqrt(
+          (tileCx - canvasCx) ** 2 + (tileCy - canvasCy) ** 2,
+        );
+        return { tile, dist: dist / maxDist };
+      })
+      .sort((a, b) => a.dist - b.dist);
+
+  const tileOrder = bestCandidate
+    ? bestCandidate.tileOrder
+    : createTileOrder(buildFallbackGridTiles(n, cw, ch));
+  const tileToPhotoIndex = bestCandidate
+    ? bestCandidate.tileToPhotoIndex
+    : assignPhotosToTiles(
+        assignmentPhotos,
+        tileOrder.map(({ tile, dist }) => ({
+          aspect: tile.w / Math.max(1, tile.h),
+          dist,
+        })),
+        assignmentOptions,
+      );
 
   console.log(
     "[LayoutDebug] fillArrangePhotos: Created",
-    tiles.length,
+    tileOrder.length,
     "tiles, needed",
     n,
   );
 
-  // Greedy match:
-  // 1) 保持“tile 与照片宽高比越接近越优先”
-  // 2) 叠加中心优先：中心 tile 更偏好接近 1:1 的照片
-  const photosLeft = photos.map(photo => {
-    const photoAspect = photo.crop.width / Math.max(1, photo.crop.height);
-    const deviation = Math.abs(Math.log(Math.max(1e-6, photoAspect)));
-    return { photo, deviation, aspect: photoAspect };
-  });
+  const buildPlacementsFor = (
+    currentTileOrder: Array<{ tile: FillRect; dist: number }>,
+    currentTileToPhotoIndex: number[],
+  ): Placement[] => {
+    const placements: Placement[] = [];
+    for (let tileIdx = 0; tileIdx < currentTileOrder.length; tileIdx++) {
+      const { tile } = currentTileOrder[tileIdx];
+      const assignedPhoto =
+        photosWithStrategy[currentTileToPhotoIndex[tileIdx]];
+      if (!assignedPhoto) return [];
 
-  // 预计算画布中心和最大距离（用于归一化）
-  const canvasCx = canvasW / 2;
-  const canvasCy = canvasH / 2;
-  const maxDist = Math.sqrt(canvasCx * canvasCx + canvasCy * canvasCy) || 1;
-
-  // 按中心距离升序排序（从中心到边缘），而非按面积降序
-  const tileOrder = [...tiles]
-    .map(tile => {
-      const tileCx = tile.x + tile.w / 2;
-      const tileCy = tile.y + tile.h / 2;
-      const dist = Math.sqrt(
-        (tileCx - canvasCx) ** 2 + (tileCy - canvasCy) ** 2,
-      );
-      return { tile, dist: dist / maxDist };
-    })
-    .sort((a, b) => a.dist - b.dist);
-
-  const placements: Placement[] = [];
-  for (const { tile, dist } of tileOrder) {
-    if (photosLeft.length === 0) break;
-
-    const ta = tile.w / Math.max(1, tile.h);
-    let bestIdx = 0;
-    let bestCost = Infinity;
-    for (let i = 0; i < photosLeft.length; i++) {
-      const item = photosLeft[i];
-      const aspectDelta = Math.abs(
-        Math.log(Math.max(1e-6, item.aspect)) - Math.log(Math.max(1e-6, ta)),
-      );
-      const centerPenalty = CENTER_BIAS_WEIGHT * (1 - dist) * item.deviation;
-      const edgeBonus = EDGE_BIAS_WEIGHT * dist * item.deviation;
-      const cost = aspectDelta + centerPenalty - edgeBonus;
-      if (cost < bestCost) {
-        bestCost = cost;
-        bestIdx = i;
-      }
-    }
-
-    const p = photosLeft.splice(bestIdx, 1)[0].photo;
-    // 始终对极端比例图片启用智能裁剪（不再限制 tile 比例范围），
-    // calculateSmartCrop 内部会将裁剪比例限制到 [4:6, 6:4]。
-    const shouldSmartCrop = shouldApplySmartCropByImageAspect(
-      p.imageWidth,
-      p.imageHeight,
-    );
-    const detections = shouldSmartCrop ? getSmartDetections(p.id) : undefined;
-    let nextCrop = centerCropToAspect(
-      p.crop,
-      ta,
-      p.imageWidth,
-      p.imageHeight,
-      detections && detections.length > 0 ? { detections } : undefined,
-    );
-    const calculatedScale = tile.w / Math.max(1, nextCrop.width);
-    const clampedScale = Math.max(
-      FILL_MIN_SCALE,
-      Math.min(FILL_MAX_SCALE, calculatedScale),
-    );
-    let scale = clampedScale;
-
-    // 命中最大缩放时，优先尝试放大裁剪区域；若不可行，回退计算值保证铺满。
-    if (scale < calculatedScale - 1e-6) {
-      const targetCropW = tile.w / scale;
-      const targetCropH = tile.h / scale;
-      if (
-        targetCropW <= p.crop.width + 1e-6 &&
-        targetCropH <= p.crop.height + 1e-6
-      ) {
-        nextCrop = recenterCropWithinBase(
-          p.crop,
-          nextCrop,
-          targetCropW,
-          targetCropH,
-        );
-      } else {
-        scale = calculatedScale;
-      }
-    }
-
-    // 最小缩放命中时，优先收窄裁剪框，避免放大后跨 tile 叠压。
-    if (scale > calculatedScale + 1e-6) {
-      const targetCropW = tile.w / scale;
-      const targetCropH = tile.h / scale;
-      nextCrop = recenterCropWithinBase(
+      const p = assignedPhoto.photo;
+      const ta = tile.w / Math.max(1, tile.h);
+      // Always pass detections if available – calculateSmartCrop and
+      // centerCropToAspect will internally decide how much to crop.
+      const detections = getSmartDetections(p.id);
+      const nextCrop = centerCropToAspect(
         p.crop,
-        nextCrop,
-        targetCropW,
-        targetCropH,
+        ta,
+        p.imageWidth,
+        p.imageHeight,
+        detections && detections.length > 0 ? { detections } : undefined,
+      );
+      if (!isFinite(nextCrop.width) || !isFinite(nextCrop.height)) return [];
+      if (nextCrop.width <= 0 || nextCrop.height <= 0) return [];
+
+      // Cover mode: ensure photo fully covers tile even if crop aspect differs
+      // due to area-loss limiting or smart crop clamping.
+      const scale = Math.max(tile.w / nextCrop.width, tile.h / nextCrop.height);
+      placements.push({
+        id: p.id,
+        cx: tile.x + tile.w / 2,
+        cy: tile.y + tile.h / 2,
+        scale,
+        rotation: 0,
+        crop: nextCrop,
+      });
+    }
+    return placements;
+  };
+
+  const validatePlacements = (
+    currentTileOrder: Array<{ tile: FillRect; dist: number }>,
+    placements: Placement[],
+  ) => {
+    if (placements.length !== currentTileOrder.length) {
+      return { ok: false as const, reason: "placement count mismatch" };
+    }
+    return validateFillArrangePlacements(
+      currentTileOrder.map((item, idx) => ({
+        tile: item.tile,
+        placement: placements[idx],
+      })),
+      cw,
+      ch,
+      { coverMode: true },
+    );
+  };
+
+  let placements = buildPlacementsFor(tileOrder, tileToPhotoIndex);
+  let validation = validatePlacements(tileOrder, placements);
+
+  if (!validation.ok) {
+    console.warn(
+      "[LayoutDebug] fillArrangePhotos: primary layout validation failed, fallback to deterministic grid:",
+      validation.reason,
+    );
+    const fallbackTileOrder = createTileOrder(
+      buildFallbackGridTiles(n, cw, ch),
+    );
+    const fallbackTileToPhotoIndex = assignPhotosToTiles(
+      assignmentPhotos,
+      fallbackTileOrder.map(({ tile, dist }) => ({
+        aspect: tile.w / Math.max(1, tile.h),
+        dist,
+      })),
+      assignmentOptions,
+    );
+    const fallbackPlacements = buildPlacementsFor(
+      fallbackTileOrder,
+      fallbackTileToPhotoIndex,
+    );
+    const fallbackValidation = validatePlacements(
+      fallbackTileOrder,
+      fallbackPlacements,
+    );
+    if (fallbackValidation.ok) {
+      placements = fallbackPlacements;
+      validation = fallbackValidation;
+    } else {
+      console.warn(
+        "[LayoutDebug] fillArrangePhotos: fallback validation failed:",
+        fallbackValidation.reason,
       );
     }
-
-    placements.push({
-      id: p.id,
-      cx: tile.x + tile.w / 2,
-      cy: tile.y + tile.h / 2,
-      scale,
-      rotation: 0,
-      crop: nextCrop,
-    });
   }
 
   // Preserve original input order by mapping back (store.applyPlacements matches by id).
@@ -591,5 +744,5 @@ export function fillArrangePhotos(
     n,
     "photos",
   );
-  return placements;
+  return { placements, canvasW: cw, canvasH: ch };
 }

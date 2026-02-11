@@ -95,7 +95,7 @@
     <!-- 裁剪模式提示 -->
     <Transition name="fade">
       <div v-if="store.cropModePhotoId" class="crop-hint">
-        <span>裁剪模式 - 拖动照片内容调整裁剪，Shift + 滚轮缩放</span>
+        <span>裁剪模式 - 拖动图片内容调整裁剪，使用滑条缩放</span>
         <div class="crop-hint__actions">
           <button class="btn btn--success btn--sm" @click="applyCrop">
             <svg
@@ -142,6 +142,13 @@ import {
   pointInPhoto,
 } from "@/utils/math";
 import { buildCanvasFilter } from "@/utils/filters";
+import {
+  CROP_CANCEL_EVENT,
+  CROP_CONFIRM_EVENT,
+  CROP_ZOOM_SET_EVENT,
+  CROP_ZOOM_SYNC_EVENT,
+  type CropZoomPercentPayload,
+} from "@/constants/cropEvents";
 
 const store = useMosaicStore();
 const toast = useToastStore();
@@ -238,10 +245,6 @@ const photoLayerState = ref<PhotoLayerState>({
 
 // 150 张照片场景优先启用分帧渲染，避免主线程一次性绘制卡顿。
 const PROGRESSIVE_PHOTO_THRESHOLD = 120;
-const CROP_CONFIRM_EVENT = "mosaic:crop-confirm";
-const CROP_CANCEL_EVENT = "mosaic:crop-cancel";
-const CROP_ZOOM_IN_EVENT = "mosaic:crop-zoom-in";
-const CROP_ZOOM_OUT_EVENT = "mosaic:crop-zoom-out";
 
 function handleExternalCropConfirm() {
   if (!store.cropModePhotoId) return;
@@ -253,12 +256,12 @@ function handleExternalCropCancel() {
   cancelCrop();
 }
 
-function handleExternalCropZoomIn() {
-  adjustCropZoom(1.08);
-}
-
-function handleExternalCropZoomOut() {
-  adjustCropZoom(1 / 1.08);
+function handleExternalCropZoomSet(event: Event) {
+  if (!store.cropModePhotoId) return;
+  const detail = (event as CustomEvent<CropZoomPercentPayload>).detail;
+  const percent = Number(detail?.percent);
+  if (!isFinite(percent)) return;
+  setCropZoomPercent(percent);
 }
 
 function readCanvasColors(): CanvasColors {
@@ -448,8 +451,7 @@ onMounted(() => {
   window.addEventListener("keyup", handleKeyUp);
   window.addEventListener(CROP_CONFIRM_EVENT, handleExternalCropConfirm);
   window.addEventListener(CROP_CANCEL_EVENT, handleExternalCropCancel);
-  window.addEventListener(CROP_ZOOM_IN_EVENT, handleExternalCropZoomIn);
-  window.addEventListener(CROP_ZOOM_OUT_EVENT, handleExternalCropZoomOut);
+  window.addEventListener(CROP_ZOOM_SET_EVENT, handleExternalCropZoomSet);
 
   // Prewarm cached CSS-derived colors after the initial DOM paint.
   nextTick(() => {
@@ -471,8 +473,7 @@ onUnmounted(() => {
   window.removeEventListener("keyup", handleKeyUp);
   window.removeEventListener(CROP_CONFIRM_EVENT, handleExternalCropConfirm);
   window.removeEventListener(CROP_CANCEL_EVENT, handleExternalCropCancel);
-  window.removeEventListener(CROP_ZOOM_IN_EVENT, handleExternalCropZoomIn);
-  window.removeEventListener(CROP_ZOOM_OUT_EVENT, handleExternalCropZoomOut);
+  window.removeEventListener(CROP_ZOOM_SET_EVENT, handleExternalCropZoomSet);
   if (resizeObserver.value) {
     resizeObserver.value.disconnect();
     resizeObserver.value = null;
@@ -516,7 +517,7 @@ watch(
       const photo = store.photos.find(p => p.id === id);
       const reference = photo ? store.getCropModeReferenceCrop(id) : null;
       if (photo && reference) {
-        // 进入裁剪时保持进入前裁剪视图，保证 Shift+滚轮可双向缩放。
+        // 进入裁剪时保持进入前裁剪视图。
         const safeX = clamp(reference.x, 0, Math.max(0, photo.imageWidth - 1));
         const safeY = clamp(reference.y, 0, Math.max(0, photo.imageHeight - 1));
         const draft = {
@@ -547,6 +548,7 @@ watch(
     }
     // 更新 store 中的缩放状态
     store.cropHasZoomedIn = false;
+    dispatchCropZoomSync();
     requestRender();
   },
 );
@@ -680,11 +682,6 @@ function zoomOut() {
 }
 
 function handleWheel(e: WheelEvent) {
-  if (store.cropModePhotoId && cropDraft.value && e.shiftKey) {
-    const zoomFactor = e.deltaY > 0 ? 1 / 1.08 : 1.08;
-    adjustCropZoom(zoomFactor, { x: e.clientX, y: e.clientY });
-    return;
-  }
   autoFit.value = false;
   const delta = e.deltaY > 0 ? 0.9 : 1.1;
   applyZoom(viewport.value.scale * delta, { x: e.clientX, y: e.clientY });
@@ -915,12 +912,23 @@ function getCropFrameHalfSize(photo: PhotoEntity): { hw: number; hh: number } {
   };
 }
 
-function adjustCropZoom(
-  multiplier: number,
-  anchorClient?: { x: number; y: number },
-) {
+function getCropZoomPercent(): number {
+  if (!cropDraft.value || !initialCropDraft.value) return 100;
+  const percent = (initialCropDraft.value.width / cropDraft.value.width) * 100;
+  return clamp(percent, 100, 400);
+}
+
+function dispatchCropZoomSync() {
+  window.dispatchEvent(
+    new CustomEvent<CropZoomPercentPayload>(CROP_ZOOM_SYNC_EVENT, {
+      detail: { percent: getCropZoomPercent() },
+    }),
+  );
+}
+
+function setCropZoomPercent(percent: number) {
   if (!store.cropModePhotoId || !cropDraft.value) return;
-  if (!isFinite(multiplier) || multiplier <= 0) return;
+  if (!isFinite(percent)) return;
 
   const photo = store.photos.find(p => p.id === store.cropModePhotoId);
   if (!photo) return;
@@ -929,7 +937,9 @@ function adjustCropZoom(
   const frameAspect = frame.width / Math.max(1, frame.height);
   if (!isFinite(frameAspect) || frameAspect <= 0) return;
 
+  const targetPercent = clamp(percent, 100, 400);
   const source = cropDraft.value;
+  const base = initialCropDraft.value ?? source;
   const imageAspect = photo.imageWidth / Math.max(1, photo.imageHeight);
   const maxSource =
     imageAspect > frameAspect
@@ -952,25 +962,14 @@ function adjustCropZoom(
     Math.max(48, frame.width * 0.12),
   );
   const nextWidth = clamp(
-    source.width / multiplier,
+    base.width * (100 / targetPercent),
     minSourceWidth,
     zoomOutLimit,
   );
   const nextHeight = nextWidth / frameAspect;
 
-  let anchorX = 0.5;
-  let anchorY = 0.5;
-  if (anchorClient && canvasEl.value) {
-    const point = screenToCanvas(anchorClient.x, anchorClient.y);
-    const dx = point.x - photo.cx;
-    const dy = point.y - photo.cy;
-    const local = inverseRotatePoint(dx, dy, photo.rotation);
-    const cropRect = getCropFrameHalfSize(photo);
-    if (Math.abs(local.x) <= cropRect.hw && Math.abs(local.y) <= cropRect.hh) {
-      anchorX = (local.x + cropRect.hw) / Math.max(1e-6, cropRect.hw * 2);
-      anchorY = (local.y + cropRect.hh) / Math.max(1e-6, cropRect.hh * 2);
-    }
-  }
+  const anchorX = 0.5;
+  const anchorY = 0.5;
 
   const anchorSourceX = source.x + source.width * anchorX;
   const anchorSourceY = source.y + source.height * anchorY;
@@ -985,7 +984,10 @@ function adjustCropZoom(
     Math.abs(nextY - source.y) < 1e-4 &&
     Math.abs(nextWidth - source.width) < 1e-4 &&
     Math.abs(nextHeight - source.height) < 1e-4;
-  if (unchanged) return;
+  if (unchanged) {
+    dispatchCropZoomSync();
+    return;
+  }
 
   cropDraft.value = {
     x: nextX,
@@ -1000,6 +1002,7 @@ function adjustCropZoom(
       cropDraft.value.width < initialCropDraft.value.width - 1e-4;
   }
 
+  dispatchCropZoomSync();
   requestRender();
 }
 

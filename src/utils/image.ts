@@ -275,7 +275,7 @@ export function centerCropToAspect(
         crop,
       );
     } catch {
-      // 任何检测/计算异常都退回到原有居中裁剪逻辑
+      // fall back to plain center-crop logic on any detection/calculation error
     }
   }
 
@@ -294,15 +294,58 @@ export function centerCropToAspect(
 
   const cx = x + width / 2;
   const cy = y + height / 2;
+  const originalArea = width * height;
 
+  // Calculate crop dimensions for targetAspect
+  let newW = width;
+  let newH = height;
   if (currentAspect > targetAspect) {
-    // 太宽：收窄 width
-    width = height * targetAspect;
+    newW = height * targetAspect;
+    newH = height;
   } else {
-    // 太高：收窄 height
-    height = width / targetAspect;
+    newH = width / targetAspect;
+    newW = width;
   }
 
+  // Guard against excessive crop: limit area loss to MAX_CROP_AREA_LOSS (30%)
+  const MAX_CROP_AREA_LOSS = 0.3;
+  const newArea = newW * newH;
+  const areaLoss = 1 - newArea / originalArea;
+  if (areaLoss > MAX_CROP_AREA_LOSS) {
+    // Binary-search for an aspect ratio that satisfies the area-loss budget
+    let lo = Math.min(currentAspect, targetAspect);
+    let hi = Math.max(currentAspect, targetAspect);
+    for (let i = 0; i < 20; i++) {
+      const mid = (lo + hi) / 2;
+      let testW: number, testH: number;
+      if (currentAspect > mid) {
+        testW = height * mid;
+        testH = height;
+      } else {
+        testH = width / mid;
+        testW = width;
+      }
+      const testLoss = 1 - (testW * testH) / originalArea;
+      if (testLoss > MAX_CROP_AREA_LOSS) {
+        if (targetAspect > currentAspect) hi = mid;
+        else lo = mid;
+      } else {
+        if (targetAspect > currentAspect) lo = mid;
+        else hi = mid;
+      }
+    }
+    const clampedAspect = (lo + hi) / 2;
+    if (currentAspect > clampedAspect) {
+      newW = height * clampedAspect;
+      newH = height;
+    } else {
+      newH = width / clampedAspect;
+      newW = width;
+    }
+  }
+
+  width = newW;
+  height = newH;
   x = cx - width / 2;
   y = cy - height / 2;
 

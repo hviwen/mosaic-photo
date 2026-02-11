@@ -26,9 +26,6 @@ import {
   onSmartDetectionsChanged,
   prefetchSmartDetections,
   seedSmartDetections,
-  SMART_CROP_ASPECT_MAX,
-  SMART_CROP_ASPECT_MIN,
-  shouldApplySmartCropByImageAspect,
 } from "@/utils/smartCrop";
 import { getVisionClient } from "@/vision/visionClient";
 
@@ -183,14 +180,12 @@ export const useMosaicStore = defineStore("mosaic", () => {
     const photo = photos.value.find(p => p.id === photoId);
     if (!photo?.layoutCrop) return;
     const ta = photo.layoutCrop.width / Math.max(1, photo.layoutCrop.height);
-    // 始终尝试智能裁剪（calculateSmartCrop 内部会限制裁剪比例到 [4:6, 6:4]）
-    const shouldSmartCrop = shouldApplySmartCropByImageAspect(
-      photo.imageWidth,
-      photo.imageHeight,
-    );
-    const detections = shouldSmartCrop
-      ? getSmartDetections(photoId)
-      : undefined;
+
+    // 记录当前 tile 的精确渲染尺寸（layoutCrop × scale 应始终 === tile 宽高）
+    const tileW = photo.layoutCrop.width * photo.scale;
+
+    // 始终传入 detections（如果有），让 centerCropToAspect / calculateSmartCrop 内部决策
+    const detections = getSmartDetections(photoId);
     const next = centerCropToAspect(
       photo.crop,
       ta,
@@ -199,6 +194,11 @@ export const useMosaicStore = defineStore("mosaic", () => {
       detections && detections.length > 0 ? { detections } : undefined,
     );
     photo.layoutCrop = clampCrop(next, photo.imageWidth, photo.imageHeight);
+
+    // 同步更新 scale，确保 layoutCrop.width * scale === tileW（消除重叠/缝隙）
+    if (photo.layoutCrop.width > 0) {
+      photo.scale = tileW / photo.layoutCrop.width;
+    }
   });
 
   // 操作历史（撤销/重做）
@@ -783,17 +783,28 @@ export const useMosaicStore = defineStore("mosaic", () => {
       photos.value.length,
       "photos",
     );
-    const placements = fillArrangePhotos(
+    const result = fillArrangePhotos(
       photos.value,
       canvasWidth.value,
       canvasHeight.value,
     );
     console.log(
       "[LayoutDebug] autoLayout: Generated",
-      placements.length,
-      "placements",
+      result.placements.length,
+      "placements, canvas adjusted to",
+      result.canvasW,
+      "x",
+      result.canvasH,
     );
-    applyPlacements(placements);
+    // Apply adjusted canvas dimensions (±100px adaptive fit)
+    if (
+      result.canvasW !== canvasWidth.value ||
+      result.canvasH !== canvasHeight.value
+    ) {
+      canvasWidth.value = result.canvasW;
+      canvasHeight.value = result.canvasH;
+    }
+    applyPlacements(result.placements);
   }
 
   async function autoLayoutAsync(): Promise<boolean> {
@@ -1193,15 +1204,12 @@ export const useMosaicStore = defineStore("mosaic", () => {
       width: loaded.imageWidth,
       height: loaded.imageHeight,
     };
-    const replacementDetections =
-      shouldApplySmartCropByImageAspect(
-        loaded.imageWidth,
-        loaded.imageHeight,
-      ) &&
-      targetAspect >= SMART_CROP_ASPECT_MIN &&
-      targetAspect <= SMART_CROP_ASPECT_MAX
-        ? getSmartDetections(id)
-        : undefined;
+    const replacementDetections = shouldApplySmartCropByImageAspect(
+      loaded.imageWidth,
+      loaded.imageHeight,
+    )
+      ? getSmartDetections(id)
+      : undefined;
     const nextCrop = centerCropToAspect(
       fullCrop,
       targetAspect,

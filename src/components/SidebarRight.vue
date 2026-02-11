@@ -73,12 +73,19 @@
           <div class="d-flex flex-column" style="gap: 0.15rem">
             <div class="text-caption">文件：{{ selectedPhoto.name }}</div>
             <div class="text-caption">
-              尺寸：{{ selectedPhoto.imageWidth }} ×
-              {{ selectedPhoto.imageHeight }}
+              原图：{{ selectedPhotoInfo?.original.width }} ×
+              {{ selectedPhotoInfo?.original.height }}，比例
+              {{ selectedPhotoInfo?.original.aspect }}
             </div>
             <div class="text-caption">
-              裁剪：{{ Math.round(selectedPhoto.crop.width) }} ×
-              {{ Math.round(selectedPhoto.crop.height) }}
+              用户裁剪：{{ selectedPhotoInfo?.userCrop.width }} ×
+              {{ selectedPhotoInfo?.userCrop.height }}，比例
+              {{ selectedPhotoInfo?.userCrop.aspect }}
+            </div>
+            <div class="text-caption">
+              显示裁剪：{{ selectedPhotoInfo?.displayCrop.width }} ×
+              {{ selectedPhotoInfo?.displayCrop.height }}，比例
+              {{ selectedPhotoInfo?.displayCrop.aspect }}
             </div>
             <div class="text-caption">图层：{{ selectedPhoto.zIndex }}</div>
           </div>
@@ -158,26 +165,17 @@
                 v-if="isSelectedInCropMode"
                 class="d-flex flex-column mt-2"
                 style="gap: 0.5rem">
-                <v-btn
-                  block
-                  size="small"
-                  variant="outlined"
-                  prepend-icon="mdi-magnify-minus-outline"
-                  :disabled="!store.cropHasZoomedIn"
-                  @click="zoomCropOut">
-                  缩小
-                </v-btn>
-                <v-btn
-                  block
-                  size="small"
-                  variant="outlined"
-                  prepend-icon="mdi-magnify-plus-outline"
-                  @click="zoomCropIn">
-                  放大
-                </v-btn>
-              </div>
-              <div v-if="isSelectedInCropMode" class="text-caption mt-2">
-                支持 Shift + 鼠标滚轮缩放
+                <div class="d-flex align-center justify-space-between">
+                  <div class="text-caption">缩放</div>
+                  <div class="text-caption">{{ cropZoomPercent }}%</div>
+                </div>
+                <v-slider
+                  :model-value="cropZoomPercent"
+                  min="100"
+                  max="400"
+                  step="1"
+                  density="compact"
+                  @update:model-value="updateCropZoomPercent" />
               </div>
             </v-expansion-panel-text>
           </v-expansion-panel>
@@ -449,13 +447,21 @@ import { useMosaicStore } from "@/stores/mosaic";
 import { useToastStore } from "@/stores/toast";
 import { useThemeStore } from "@/stores/theme";
 import { useUiStore } from "@/stores/ui";
-import { radiansToDegrees, degreesToRadians } from "@/utils/math";
+import { radiansToDegrees, degreesToRadians, clamp } from "@/utils/math";
 import {
   getSmartDetections,
   getSmartDetectionsState,
   onSmartDetectionsChanged,
 } from "@/utils/smartCrop";
 import type { FilterPreset, PhotoAdjustments } from "@/types";
+import { buildPhotoSelectionInfo } from "@/utils/photoSelectionMetrics";
+import {
+  CROP_CANCEL_EVENT,
+  CROP_CONFIRM_EVENT,
+  CROP_ZOOM_SET_EVENT,
+  CROP_ZOOM_SYNC_EVENT,
+  type CropZoomPercentPayload,
+} from "@/constants/cropEvents";
 
 const store = useMosaicStore();
 const toast = useToastStore();
@@ -464,10 +470,7 @@ const ui = useUiStore();
 const originPreviewCanvasEl = ref<HTMLCanvasElement | null>(null);
 const originPreviewRaf = ref<number | null>(null);
 const originPreviewResizeObserver = ref<ResizeObserver | null>(null);
-const CROP_CONFIRM_EVENT = "mosaic:crop-confirm";
-const CROP_CANCEL_EVENT = "mosaic:crop-cancel";
-const CROP_ZOOM_IN_EVENT = "mosaic:crop-zoom-in";
-const CROP_ZOOM_OUT_EVENT = "mosaic:crop-zoom-out";
+const cropZoomPercent = ref(100);
 
 const selectedPhoto = computed(() => store.selectedPhoto);
 const detectionTick = ref(0);
@@ -517,6 +520,9 @@ const rotationDeg = computed(() =>
     ? Math.round(radiansToDegrees(selectedPhoto.value.rotation))
     : 0,
 );
+const selectedPhotoInfo = computed(() =>
+  selectedPhoto.value ? buildPhotoSelectionInfo(selectedPhoto.value) : null,
+);
 
 const historyItems = computed(() => store.history.slice(-12).reverse());
 
@@ -559,6 +565,7 @@ onMounted(() => {
     detectionTick.value++;
     scheduleOriginPreviewRender();
   });
+  window.addEventListener(CROP_ZOOM_SYNC_EVENT, handleCropZoomSync);
   if ("ResizeObserver" in window) {
     originPreviewResizeObserver.value = new ResizeObserver(() => {
       scheduleOriginPreviewRender();
@@ -577,6 +584,7 @@ onUnmounted(() => {
     disposeDetections();
     disposeDetections = null;
   }
+  window.removeEventListener(CROP_ZOOM_SYNC_EVENT, handleCropZoomSync);
   if (originPreviewResizeObserver.value) {
     originPreviewResizeObserver.value.disconnect();
     originPreviewResizeObserver.value = null;
@@ -660,12 +668,13 @@ function sendToBack() {
 function enterCropMode() {
   if (!selectedPhoto.value) return;
   store.enterCropMode(selectedPhoto.value.id);
+  cropZoomPercent.value = 100;
   // 自动展开裁剪面板
   if (!expandedPanels.value.includes("crop")) {
     expandedPanels.value = [...expandedPanels.value, "crop"];
   }
   toast.info(
-    "裁剪模式：拖动调整裁剪区域，Shift + 滚轮缩放，Enter 确认，Esc 取消",
+    "裁剪模式：拖动图片内容调整裁剪，使用滑条缩放，Enter 确认，Esc 取消",
   );
 }
 
@@ -677,12 +686,23 @@ function cancelCrop() {
   window.dispatchEvent(new Event(CROP_CANCEL_EVENT));
 }
 
-function zoomCropIn() {
-  window.dispatchEvent(new Event(CROP_ZOOM_IN_EVENT));
+function updateCropZoomPercent(v: unknown) {
+  const raw = typeof v === "number" ? v : parseFloat(String(v));
+  if (Number.isNaN(raw)) return;
+  const percent = Math.round(clamp(raw, 100, 400));
+  cropZoomPercent.value = percent;
+  window.dispatchEvent(
+    new CustomEvent<CropZoomPercentPayload>(CROP_ZOOM_SET_EVENT, {
+      detail: { percent },
+    }),
+  );
 }
 
-function zoomCropOut() {
-  window.dispatchEvent(new Event(CROP_ZOOM_OUT_EVENT));
+function handleCropZoomSync(event: Event) {
+  const detail = (event as CustomEvent<CropZoomPercentPayload>).detail;
+  const raw = Number(detail?.percent);
+  if (!isFinite(raw)) return;
+  cropZoomPercent.value = Math.round(clamp(raw, 100, 400));
 }
 
 function scheduleTransformCommit() {
@@ -809,6 +829,15 @@ watch(
     scheduleOriginPreviewRender();
   },
   { immediate: true },
+);
+
+watch(
+  () => store.cropModePhotoId,
+  id => {
+    if (!id) {
+      cropZoomPercent.value = 100;
+    }
+  },
 );
 
 watch(

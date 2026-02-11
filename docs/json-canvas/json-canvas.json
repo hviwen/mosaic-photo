@@ -1,0 +1,606 @@
+{
+  "nodes": [
+    {
+      "id": "n-group-entry-app",
+      "type": "group",
+      "x": 0,
+      "y": 0,
+      "width": 1250,
+      "height": 760,
+      "label": "group-entry-app 入口与应用外壳",
+      "color": "4"
+    },
+    {
+      "id": "n-group-ui",
+      "type": "group",
+      "x": 0,
+      "y": 820,
+      "width": 1250,
+      "height": 1900,
+      "label": "group-ui 界面组件层",
+      "color": "5"
+    },
+    {
+      "id": "n-group-store",
+      "type": "group",
+      "x": 1450,
+      "y": 0,
+      "width": 1250,
+      "height": 940,
+      "label": "group-store Pinia 状态层",
+      "color": "3"
+    },
+    {
+      "id": "n-group-layout",
+      "type": "group",
+      "x": 1450,
+      "y": 990,
+      "width": 1250,
+      "height": 1120,
+      "label": "group-layout 自动排版与导出",
+      "color": "2"
+    },
+    {
+      "id": "n-group-vision",
+      "type": "group",
+      "x": 2900,
+      "y": 0,
+      "width": 1250,
+      "height": 940,
+      "label": "group-vision 智能裁剪与视觉识别",
+      "color": "6"
+    },
+    {
+      "id": "n-group-project",
+      "type": "group",
+      "x": 2900,
+      "y": 980,
+      "width": 1250,
+      "height": 1380,
+      "label": "group-project 工程持久化与文件导入导出",
+      "color": "2"
+    },
+    {
+      "id": "n-group-shared",
+      "type": "group",
+      "x": 2900,
+      "y": 2400,
+      "width": 1250,
+      "height": 500,
+      "label": "group-shared 类型与通用能力",
+      "color": "1"
+    },
+    {
+      "id": "n-group-test",
+      "type": "group",
+      "x": 2900,
+      "y": 2930,
+      "width": 1250,
+      "height": 620,
+      "label": "group-test 测试与回归保障",
+      "color": "3"
+    },
+    {
+      "id": "n-main-ts",
+      "type": "text",
+      "x": 40,
+      "y": 80,
+      "width": 580,
+      "height": 250,
+      "text": "# 启动入口 main.ts\n文件: src/main.ts\n职责: 初始化 Vue/Pinia/Vuetify，恢复最新工程并注册自动保存。\n关键依赖: theme/ui/mosaic store，project/persistence，project/applyProject。\n关键输出: 应用挂载、主题同步、工程恢复、自动保存触发。"
+    },
+    {
+      "id": "n-app-vue",
+      "type": "text",
+      "x": 40,
+      "y": 360,
+      "width": 580,
+      "height": 220,
+      "text": "# 应用壳 App.vue\n文件: src/App.vue, src/components/ToastContainer.vue\n职责: 组织左右侧栏、主画布与全局 Toast 容器。\n关键依赖: SidebarLeft、SidebarRight、CanvasStage、ToastContainer、ui store。\n关键输出: 统一页面骨架与布局容器。"
+    },
+    {
+      "id": "n-sidebar-left",
+      "type": "text",
+      "x": 40,
+      "y": 900,
+      "width": 580,
+      "height": 250,
+      "text": "# 左侧栏 SidebarLeft\n文件: src/components/SidebarLeft.vue, src/components/PhotoList.vue\n职责: 上传照片、自动排版、导出拼图、工程导入导出入口。\n关键依赖: mosaic store、toast store、project/projectFile、composables/useExport。\n关键输出: 用户操作指令与导出流程触发。"
+    },
+    {
+      "id": "n-sidebar-right",
+      "type": "text",
+      "x": 40,
+      "y": 1180,
+      "width": 580,
+      "height": 250,
+      "text": "# 右侧栏 SidebarRight\n文件: src/components/SidebarRight.vue, src/components/AspectBar.vue\n职责: 选中照片的裁剪、变换、滤镜、替换与历史操作。\n关键依赖: mosaic store、theme/ui store、smartCrop、photoSelectionMetrics。\n关键输出: 照片参数编辑指令与主题切换。"
+    },
+    {
+      "id": "n-canvas-stage",
+      "type": "text",
+      "x": 40,
+      "y": 1460,
+      "width": 580,
+      "height": 310,
+      "text": "# 画布舞台 CanvasStage\n文件: src/components/CanvasStage.vue\n职责: 画布渲染、缩放平移、拖拽裁剪、分帧绘制与交互命中。\n关键依赖: mosaic store、theme store、toast store、utils/math、utils/filters、constants/cropEvents。\n关键输出: 可视化编辑体验与画布交互状态。"
+    },
+    {
+      "id": "n-store-mosaic",
+      "type": "text",
+      "x": 1490,
+      "y": 90,
+      "width": 610,
+      "height": 360,
+      "text": "# 核心状态 mosaic store\n文件: src/stores/mosaic.ts\n职责: 维护照片/画布/导出/历史状态，编排导入、排版、裁剪、导出等主流程。\n关键依赖: useLayout、layoutWorker、smartCrop、visionClient、project/assets。\n关键输出: 单一业务状态源与动作 API。"
+    },
+    {
+      "id": "n-store-ui-theme",
+      "type": "text",
+      "x": 1490,
+      "y": 480,
+      "width": 610,
+      "height": 220,
+      "text": "# UI 与主题状态\n文件: src/stores/ui.ts, src/stores/theme.ts\n职责: 侧栏开合、主题模式持久化与 DOM 应用。\n关键依赖: localStorage、Vuetify 主题同步。\n关键输出: 页面外观状态与偏好存储。"
+    },
+    {
+      "id": "n-store-toast",
+      "type": "text",
+      "x": 1490,
+      "y": 730,
+      "width": 610,
+      "height": 160,
+      "text": "# 通知状态 toast store\n文件: src/stores/toast.ts\n职责: 管理全局提示消息队列与自动移除。\n关键依赖: types/index.ts。\n关键输出: success/info/warning/error 反馈通道。"
+    },
+    {
+      "id": "n-use-layout",
+      "type": "text",
+      "x": 1490,
+      "y": 1070,
+      "width": 610,
+      "height": 240,
+      "text": "# 排版算法 useLayout\n文件: src/composables/useLayout.ts\n职责: 自动排版、铺满布局、分块策略与回退逻辑。\n关键依赖: fillArrangeAssignment、fillArrangeValidation、smartCrop、utils/math。\n关键输出: Placement 列表与画布覆盖策略。"
+    },
+    {
+      "id": "n-layout-worker",
+      "type": "text",
+      "x": 1490,
+      "y": 1340,
+      "width": 610,
+      "height": 220,
+      "text": "# 布局 Worker\n文件: src/workers/layoutWorker.ts\n职责: 在 Worker 线程执行 fillArrange 计算，降低主线程卡顿。\n关键依赖: useLayout 同源策略、smartCrop、fillArrangeAssignment。\n关键输出: 异步 placements 结果。"
+    },
+    {
+      "id": "n-layout-strategy-utils",
+      "type": "text",
+      "x": 1490,
+      "y": 1590,
+      "width": 610,
+      "height": 200,
+      "text": "# 排版策略工具\n文件: src/utils/fillArrangeAssignment.ts, src/utils/fillArrangeValidation.ts, src/utils/math.ts\n职责: 图片与 tile 分配、布局合法性校验、几何计算。\n关键依赖: types/index.ts。\n关键输出: 可复用策略函数与验证结果。"
+    },
+    {
+      "id": "n-use-export",
+      "type": "text",
+      "x": 1490,
+      "y": 1820,
+      "width": 610,
+      "height": 230,
+      "text": "# 导出流程 useExport\n文件: src/composables/useExport.ts\n职责: 按分辨率/格式渲染输出，支持原图质量导出与进度回调。\n关键依赖: project/assets、utils/image、utils/filters。\n关键输出: PNG/JPEG/WebP 下载文件。"
+    },
+    {
+      "id": "n-smart-crop",
+      "type": "text",
+      "x": 2940,
+      "y": 90,
+      "width": 610,
+      "height": 280,
+      "text": "# 智能裁剪 smartCrop\n文件: src/utils/smartCrop.ts\n职责: 维护检测缓存、融合人脸/显著性结果并生成裁剪建议。\n关键依赖: visionClient、types/vision、utils/image。\n关键输出: getSmartDetections 与 centerCrop 约束输入。"
+    },
+    {
+      "id": "n-vision-client",
+      "type": "text",
+      "x": 2940,
+      "y": 400,
+      "width": 610,
+      "height": 220,
+      "text": "# 视觉客户端 visionClient\n文件: src/vision/visionClient.ts, src/vision/assets.ts\n职责: 管理视觉 Worker 生命周期、初始化参数与请求派发。\n关键依赖: workers/visionWorker.ts。\n关键输出: processFile 检测结果（预览图 + keep regions）。"
+    },
+    {
+      "id": "n-vision-worker",
+      "type": "text",
+      "x": 2940,
+      "y": 650,
+      "width": 610,
+      "height": 230,
+      "text": "# 视觉 Worker\n文件: src/workers/visionWorker.ts\n职责: MediaPipe 推理、图片解码缩放、检测结果归一化。\n关键依赖: @mediapipe/tasks-vision、public/mediapipe 资源。\n关键输出: 人脸/对象区域与预览位图。"
+    },
+    {
+      "id": "n-persistence",
+      "type": "text",
+      "x": 2940,
+      "y": 1060,
+      "width": 610,
+      "height": 220,
+      "text": "# 自动保存 persistence\n文件: src/project/persistence.ts\n职责: 计划保存、构建最新工程快照并读取最近工程。\n关键依赖: project/serialize、project/projects、project/assets。\n关键输出: latest project 持久化与恢复入口。"
+    },
+    {
+      "id": "n-project-file",
+      "type": "text",
+      "x": 2940,
+      "y": 1310,
+      "width": 610,
+      "height": 240,
+      "text": "# 工程文件 projectFile\n文件: src/project/projectFile.ts, src/project/fileFormat.ts\n职责: .mosaicproj 打包导出与导入解析。\n关键依赖: serialize、assets、applyProject、fflate。\n关键输出: 可迁移工程文件与导入应用流程。"
+    },
+    {
+      "id": "n-project-serialize-schema",
+      "type": "text",
+      "x": 2940,
+      "y": 1580,
+      "width": 610,
+      "height": 250,
+      "text": "# 工程序列化与模型\n文件: src/project/serialize.ts, src/project/schema.ts\n职责: 运行态到 ProjectV1 的转换、版本模型定义与校验。\n关键依赖: types/index.ts。\n关键输出: ProjectV1 JSON 数据。"
+    },
+    {
+      "id": "n-project-storage-idb",
+      "type": "text",
+      "x": 2940,
+      "y": 1860,
+      "width": 610,
+      "height": 250,
+      "text": "# 工程存储层\n文件: src/project/idb.ts, src/project/assets.ts, src/project/projects.ts\n职责: IndexedDB 事务封装，工程元数据与图片资源持久化。\n关键依赖: 浏览器 IndexedDB API。\n关键输出: projects/assets 两类存储读写能力。"
+    },
+    {
+      "id": "n-apply-project",
+      "type": "text",
+      "x": 2940,
+      "y": 2140,
+      "width": 610,
+      "height": 190,
+      "text": "# 工程应用 applyProject\n文件: src/project/applyProject.ts\n职责: 将 ProjectV1 还原为可编辑 PhotoEntity 列表。\n关键依赖: assets、utils/image。\n关键输出: 导入后的运行态照片集合。"
+    },
+    {
+      "id": "n-types-index",
+      "type": "text",
+      "x": 2940,
+      "y": 2480,
+      "width": 610,
+      "height": 180,
+      "text": "# 共享类型定义\n文件: src/types/index.ts\n职责: 定义 PhotoEntity、Placement、Export、Toast 等核心类型。\n关键依赖: 各层统一类型约束。\n关键输出: 全局类型契约。"
+    },
+    {
+      "id": "n-utils-image-filters",
+      "type": "text",
+      "x": 2940,
+      "y": 2690,
+      "width": 610,
+      "height": 180,
+      "text": "# 通用图像与事件能力\n文件: src/utils/image.ts, src/utils/filters.ts, src/types/vision.ts, src/constants/cropEvents.ts\n职责: 图片处理、滤镜参数构建、视觉类型与裁剪事件常量。\n关键依赖: Canvas API 与浏览器事件系统。\n关键输出: 供 UI/导出/视觉模块复用的基础能力。"
+    },
+    {
+      "id": "n-test-layout",
+      "type": "text",
+      "x": 2940,
+      "y": 3010,
+      "width": 610,
+      "height": 230,
+      "text": "# 布局回归测试\n文件: test/fillArrange.layout.test.ts, test/fillArrange.stress.test.ts\n职责: 验证铺满布局覆盖率、重叠控制与不同规模稳定性。\n关键依赖: useLayout、fillArrange 工具链。\n关键输出: 排版算法稳定性回归保障。"
+    },
+    {
+      "id": "n-test-policy-metrics",
+      "type": "text",
+      "x": 2940,
+      "y": 3270,
+      "width": 610,
+      "height": 230,
+      "text": "# 策略与指标测试\n文件: test/fillArrange.aspect-policy.test.ts, test/photoSelectionMetrics.test.ts, test/smartCrop.calculate.test.ts\n职责: 验证比例策略、选择指标与智能裁剪计算正确性。\n关键依赖: smartCrop、utils、types。\n关键输出: 视觉策略与指标计算的回归保障。"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-01",
+      "fromNode": "n-main-ts",
+      "fromSide": "right",
+      "toNode": "n-app-vue",
+      "toSide": "left",
+      "label": "应用启动"
+    },
+    {
+      "id": "e-02",
+      "fromNode": "n-main-ts",
+      "fromSide": "right",
+      "toNode": "n-store-mosaic",
+      "toSide": "left",
+      "label": "初始化核心状态"
+    },
+    {
+      "id": "e-03",
+      "fromNode": "n-main-ts",
+      "fromSide": "right",
+      "toNode": "n-store-ui-theme",
+      "toSide": "left",
+      "label": "初始化 UI/主题"
+    },
+    {
+      "id": "e-04",
+      "fromNode": "n-main-ts",
+      "fromSide": "right",
+      "toNode": "n-persistence",
+      "toSide": "left",
+      "color": "2",
+      "label": "注册自动保存"
+    },
+    {
+      "id": "e-05",
+      "fromNode": "n-main-ts",
+      "fromSide": "right",
+      "toNode": "n-apply-project",
+      "toSide": "left",
+      "label": "恢复最近工程"
+    },
+    {
+      "id": "e-06",
+      "fromNode": "n-app-vue",
+      "fromSide": "bottom",
+      "toNode": "n-sidebar-left",
+      "toSide": "top"
+    },
+    {
+      "id": "e-07",
+      "fromNode": "n-app-vue",
+      "fromSide": "bottom",
+      "toNode": "n-sidebar-right",
+      "toSide": "top"
+    },
+    {
+      "id": "e-08",
+      "fromNode": "n-app-vue",
+      "fromSide": "bottom",
+      "toNode": "n-canvas-stage",
+      "toSide": "top"
+    },
+    {
+      "id": "e-09",
+      "fromNode": "n-sidebar-left",
+      "fromSide": "right",
+      "toNode": "n-store-mosaic",
+      "toSide": "left",
+      "label": "导入/排版/导出命令"
+    },
+    {
+      "id": "e-10",
+      "fromNode": "n-sidebar-right",
+      "fromSide": "right",
+      "toNode": "n-store-mosaic",
+      "toSide": "left",
+      "label": "照片参数编辑"
+    },
+    {
+      "id": "e-11",
+      "fromNode": "n-canvas-stage",
+      "fromSide": "right",
+      "toNode": "n-store-mosaic",
+      "toSide": "left",
+      "label": "画布交互"
+    },
+    {
+      "id": "e-13",
+      "fromNode": "n-sidebar-left",
+      "fromSide": "right",
+      "toNode": "n-store-toast",
+      "toSide": "left",
+      "label": "操作反馈"
+    },
+    {
+      "id": "e-14",
+      "fromNode": "n-sidebar-right",
+      "fromSide": "right",
+      "toNode": "n-store-toast",
+      "toSide": "left",
+      "label": "提示消息"
+    },
+    {
+      "id": "e-15",
+      "fromNode": "n-canvas-stage",
+      "fromSide": "right",
+      "toNode": "n-store-toast",
+      "toSide": "left",
+      "label": "渲染提示"
+    },
+    {
+      "id": "e-17",
+      "fromNode": "n-store-mosaic",
+      "fromSide": "bottom",
+      "toNode": "n-use-layout",
+      "toSide": "top",
+      "label": "自动排版"
+    },
+    {
+      "id": "e-18",
+      "fromNode": "n-store-mosaic",
+      "fromSide": "bottom",
+      "toNode": "n-layout-worker",
+      "toSide": "top",
+      "color": "6",
+      "label": "异步布局计算"
+    },
+    {
+      "id": "e-19",
+      "fromNode": "n-store-mosaic",
+      "fromSide": "bottom",
+      "toNode": "n-layout-strategy-utils",
+      "toSide": "top",
+      "label": "几何与策略"
+    },
+    {
+      "id": "e-20",
+      "fromNode": "n-store-mosaic",
+      "fromSide": "bottom",
+      "toNode": "n-use-export",
+      "toSide": "top",
+      "label": "导出触发"
+    },
+    {
+      "id": "e-21",
+      "fromNode": "n-store-mosaic",
+      "fromSide": "right",
+      "toNode": "n-smart-crop",
+      "toSide": "left",
+      "label": "智能裁剪数据"
+    },
+    {
+      "id": "e-22",
+      "fromNode": "n-store-mosaic",
+      "fromSide": "right",
+      "toNode": "n-vision-client",
+      "toSide": "left",
+      "color": "6",
+      "label": "视觉请求编排"
+    },
+    {
+      "id": "e-23",
+      "fromNode": "n-store-ui-theme",
+      "fromSide": "left",
+      "toNode": "n-sidebar-right",
+      "toSide": "right",
+      "label": "折叠与主题状态"
+    },
+    {
+      "id": "e-24",
+      "fromNode": "n-store-ui-theme",
+      "fromSide": "left",
+      "toNode": "n-canvas-stage",
+      "toSide": "right",
+      "label": "主题与视图偏好"
+    },
+    {
+      "id": "e-25",
+      "fromNode": "n-vision-client",
+      "fromSide": "bottom",
+      "toNode": "n-vision-worker",
+      "toSide": "top",
+      "color": "6",
+      "label": "Worker 通信"
+    },
+    {
+      "id": "e-26",
+      "fromNode": "n-vision-worker",
+      "fromSide": "top",
+      "toNode": "n-smart-crop",
+      "toSide": "bottom",
+      "color": "6",
+      "label": "检测结果回填"
+    },
+    {
+      "id": "e-27",
+      "fromNode": "n-sidebar-left",
+      "fromSide": "right",
+      "toNode": "n-use-export",
+      "toSide": "left",
+      "label": "导出按钮入口"
+    },
+    {
+      "id": "e-28",
+      "fromNode": "n-use-export",
+      "fromSide": "right",
+      "toNode": "n-project-storage-idb",
+      "toSide": "left",
+      "color": "2",
+      "label": "读取原图资源"
+    },
+    {
+      "id": "e-29",
+      "fromNode": "n-persistence",
+      "fromSide": "bottom",
+      "toNode": "n-project-serialize-schema",
+      "toSide": "top",
+      "color": "2",
+      "label": "构建 ProjectV1"
+    },
+    {
+      "id": "e-30",
+      "fromNode": "n-persistence",
+      "fromSide": "bottom",
+      "toNode": "n-project-storage-idb",
+      "toSide": "top",
+      "color": "2",
+      "label": "保存 latest project"
+    },
+    {
+      "id": "e-31",
+      "fromNode": "n-project-file",
+      "fromSide": "bottom",
+      "toNode": "n-project-serialize-schema",
+      "toSide": "top",
+      "color": "2",
+      "label": "打包/解析模型"
+    },
+    {
+      "id": "e-32",
+      "fromNode": "n-project-file",
+      "fromSide": "bottom",
+      "toNode": "n-project-storage-idb",
+      "toSide": "top",
+      "color": "2",
+      "label": "写入/读取资源"
+    },
+    {
+      "id": "e-33",
+      "fromNode": "n-project-file",
+      "fromSide": "bottom",
+      "toNode": "n-apply-project",
+      "toSide": "top",
+      "color": "2",
+      "label": "导入还原"
+    },
+    {
+      "id": "e-34",
+      "fromNode": "n-apply-project",
+      "fromSide": "left",
+      "toNode": "n-store-mosaic",
+      "toSide": "right",
+      "label": "回填运行态照片"
+    },
+    {
+      "id": "e-35",
+      "fromNode": "n-test-layout",
+      "fromSide": "left",
+      "toNode": "n-use-layout",
+      "toSide": "right",
+      "label": "布局回归"
+    },
+    {
+      "id": "e-36",
+      "fromNode": "n-test-layout",
+      "fromSide": "left",
+      "toNode": "n-layout-strategy-utils",
+      "toSide": "right",
+      "label": "策略/校验回归"
+    },
+    {
+      "id": "e-37",
+      "fromNode": "n-test-policy-metrics",
+      "fromSide": "left",
+      "toNode": "n-smart-crop",
+      "toSide": "right",
+      "label": "裁剪策略回归"
+    },
+    {
+      "id": "e-38",
+      "fromNode": "n-test-policy-metrics",
+      "fromSide": "left",
+      "toNode": "n-utils-image-filters",
+      "toSide": "right",
+      "label": "工具能力回归"
+    },
+    {
+      "id": "e-39",
+      "fromNode": "n-test-policy-metrics",
+      "fromSide": "left",
+      "toNode": "n-types-index",
+      "toSide": "right",
+      "label": "类型约束回归"
+    }
+  ]
+}

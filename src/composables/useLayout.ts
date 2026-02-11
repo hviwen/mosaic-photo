@@ -675,6 +675,7 @@ export function fillArrangePhotos(
         scale,
         rotation: 0,
         crop: nextCrop,
+        tileRect: { x: tile.x, y: tile.y, w: tile.w, h: tile.h },
       });
     }
     return placements;

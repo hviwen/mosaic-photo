@@ -85,6 +85,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     zIndex: number;
     crop: CropRect;
     layoutCrop?: CropRect;
+    tileRect?: { x: number; y: number; w: number; h: number };
     adjustments: PhotoAdjustments;
   };
 
@@ -361,6 +362,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       layoutCrop: photo.layoutCrop
         ? snapshotCropRect(photo.layoutCrop)
         : undefined,
+      tileRect: photo.tileRect ? { ...photo.tileRect } : undefined,
       adjustments: snapshotAdjustments(photo.adjustments),
     };
   }
@@ -401,6 +403,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
           photo.imageHeight,
         )
       : undefined;
+    photo.tileRect = snap.tileRect ? { ...snap.tileRect } : undefined;
     photo.adjustments = snapshotAdjustments(snap.adjustments);
   }
 
@@ -1204,12 +1207,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       width: loaded.imageWidth,
       height: loaded.imageHeight,
     };
-    const replacementDetections = shouldApplySmartCropByImageAspect(
-      loaded.imageWidth,
-      loaded.imageHeight,
-    )
-      ? getSmartDetections(id)
-      : undefined;
+    const replacementDetections = getSmartDetections(id);
     const nextCrop = centerCropToAspect(
       fullCrop,
       targetAspect,
@@ -1507,7 +1505,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
   }
 
   function applyPlacements(placements: Placement[]) {
-    placements.forEach(({ id, cx, cy, scale, rotation, crop }) => {
+    placements.forEach(({ id, cx, cy, scale, rotation, crop, tileRect }) => {
       const photo = photos.value.find(p => p.id === id);
       if (photo) {
         photo.cx = cx;
@@ -1521,6 +1519,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
             photo.imageHeight,
           );
         }
+        photo.tileRect = tileRect;
       }
     });
   }

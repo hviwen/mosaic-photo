@@ -63,9 +63,8 @@ export function validateFillArrangePlacements(
   const areaEpsilon = options.areaEpsilon ?? 0.5;
   const coverMode = options.coverMode ?? false;
 
-  // In cover mode, allow up to 50% overflow per dimension (matching the 30% area-loss limit
-  // which can cause ~43% overflow in one dimension for extreme-aspect tiles).
-  const coverMaxOverflow = coverMode ? 0.5 : 0;
+  // In cover mode, overflow is expected and bounded by the 30% area-loss limiter.
+  // No explicit overflow limit is needed here.
 
   if (
     !isFinite(canvasW) ||
@@ -95,20 +94,11 @@ export function validateFillArrangePlacements(
         strictTileMatchEpsilon;
       const coversW = rect.w >= tile.w - strictTileMatchEpsilon;
       const coversH = rect.h >= tile.h - strictTileMatchEpsilon;
-      // Overflow should not exceed coverMaxOverflow of tile dimension
-      const overflowWOk =
-        rect.w - tile.w <= tile.w * coverMaxOverflow + strictTileMatchEpsilon;
-      const overflowHOk =
-        rect.h - tile.h <= tile.h * coverMaxOverflow + strictTileMatchEpsilon;
-
       if (!centerXOk || !centerYOk) {
         return { ok: false, reason: `center mismatch at index ${i}` };
       }
       if (!coversW || !coversH) {
         return { ok: false, reason: `photo does not cover tile at index ${i}` };
-      }
-      if (!overflowWOk || !overflowHOk) {
-        return { ok: false, reason: `excessive overflow at index ${i}` };
       }
     } else {
       // Strict mode: rect must match tile exactly

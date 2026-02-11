@@ -1200,9 +1200,18 @@ function drawGrid(c: CanvasRenderingContext2D) {
 
 function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
   c.save();
-  // 铺满式布局要求不溢出画布：先裁剪到画布边界。
+  // 铺满式布局：优先 clip 到 tile 边界，防止 cover-mode 溢出造成相邻照片重叠。
   c.beginPath();
-  c.rect(0, 0, store.canvasWidth, store.canvasHeight);
+  if (photo.tileRect) {
+    c.rect(
+      photo.tileRect.x,
+      photo.tileRect.y,
+      photo.tileRect.w,
+      photo.tileRect.h,
+    );
+  } else {
+    c.rect(0, 0, store.canvasWidth, store.canvasHeight);
+  }
   c.clip();
 
   c.translate(photo.cx, photo.cy);

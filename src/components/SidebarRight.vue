@@ -74,19 +74,34 @@
             <div class="text-caption">文件：{{ selectedPhoto.name }}</div>
             <div class="text-caption">
               原图：{{ selectedPhotoInfo?.original.width }} ×
-              {{ selectedPhotoInfo?.original.height }}，比例
-              {{ selectedPhotoInfo?.original.aspect }}
+              {{ selectedPhotoInfo?.original.height }}
             </div>
+            <AspectBar
+              v-if="selectedPhotoInfo"
+              :width="selectedPhotoInfo.original.width"
+              :height="selectedPhotoInfo.original.height"
+              :aspect="selectedPhotoInfo.original.aspect"
+              :active="!!selectedPhoto" />
             <div class="text-caption">
               用户裁剪：{{ selectedPhotoInfo?.userCrop.width }} ×
-              {{ selectedPhotoInfo?.userCrop.height }}，比例
-              {{ selectedPhotoInfo?.userCrop.aspect }}
+              {{ selectedPhotoInfo?.userCrop.height }}
             </div>
+            <AspectBar
+              v-if="selectedPhotoInfo"
+              :width="selectedPhotoInfo.userCrop.width"
+              :height="selectedPhotoInfo.userCrop.height"
+              :aspect="selectedPhotoInfo.userCrop.aspect"
+              :active="!!selectedPhoto" />
             <div class="text-caption">
               显示裁剪：{{ selectedPhotoInfo?.displayCrop.width }} ×
-              {{ selectedPhotoInfo?.displayCrop.height }}，比例
-              {{ selectedPhotoInfo?.displayCrop.aspect }}
+              {{ selectedPhotoInfo?.displayCrop.height }}
             </div>
+            <AspectBar
+              v-if="selectedPhotoInfo"
+              :width="selectedPhotoInfo.displayCrop.width"
+              :height="selectedPhotoInfo.displayCrop.height"
+              :aspect="selectedPhotoInfo.displayCrop.aspect"
+              :active="!!selectedPhoto" />
             <div class="text-caption">图层：{{ selectedPhoto.zIndex }}</div>
           </div>
         </div>
@@ -455,6 +470,7 @@ import {
 } from "@/utils/smartCrop";
 import type { FilterPreset, PhotoAdjustments } from "@/types";
 import { buildPhotoSelectionInfo } from "@/utils/photoSelectionMetrics";
+import AspectBar from "@/components/AspectBar.vue";
 import {
   CROP_CANCEL_EVENT,
   CROP_CONFIRM_EVENT,

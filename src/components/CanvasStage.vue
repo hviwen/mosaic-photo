@@ -75,6 +75,27 @@
       </div>
     </div>
 
+    <!-- 画布信息条 -->
+    <div class="canvas-stage__info">
+      <span class="canvas-stage__info-item">
+        {{ store.canvasWidth }}×{{ store.canvasHeight }} px
+      </span>
+      <span class="canvas-stage__info-sep">·</span>
+      <span class="canvas-stage__info-item">
+        {{ canvasPhysicalWidth }}×{{ canvasPhysicalHeight }} cm
+      </span>
+      <span class="canvas-stage__info-sep">·</span>
+      <span class="canvas-stage__info-item">{{ CANVAS_DPI }} DPI</span>
+      <span class="canvas-stage__info-sep">·</span>
+      <span class="canvas-stage__info-item">{{ canvasAspectLabel }}</span>
+      <template v-if="canvasPresetLabel">
+        <span class="canvas-stage__info-sep">·</span>
+        <span class="canvas-stage__info-item canvas-stage__info-item--preset">
+          {{ canvasPresetLabel }}
+        </span>
+      </template>
+    </div>
+
     <div
       ref="stageBody"
       class="canvas-stage__body"
@@ -172,6 +193,28 @@ const viewport = ref<Viewport>({
 const autoFit = ref(true);
 
 const zoomPercent = computed(() => Math.round(viewport.value.scale * 100));
+
+// ---- 画布信息 ----
+const CANVAS_DPI = 300;
+const canvasPhysicalWidth = computed(() =>
+  ((store.canvasWidth / CANVAS_DPI) * 2.54).toFixed(1),
+);
+const canvasPhysicalHeight = computed(() =>
+  ((store.canvasHeight / CANVAS_DPI) * 2.54).toFixed(1),
+);
+const canvasAspectLabel = computed(() => {
+  const w = store.canvasWidth;
+  const h = store.canvasHeight;
+  if (!w || !h) return "—";
+  // Try to find a simple integer ratio via GCD
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const g = gcd(Math.round(w), Math.round(h));
+  const rw = Math.round(w / g);
+  const rh = Math.round(h / g);
+  if (rw <= 20 && rh <= 20) return `${rw}:${rh}`;
+  return (w / h).toFixed(2);
+});
+const canvasPresetLabel = computed(() => store.currentPreset?.label ?? "");
 
 // 拖拽状态
 type PointerMode =
@@ -1380,5 +1423,37 @@ function drawCropOverlay(c: CanvasRenderingContext2D, photo: PhotoEntity) {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+}
+
+/* ---- 画布信息条 ---- */
+.canvas-stage__info {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 28px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.canvas-stage__info-item {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.02em;
+}
+
+.canvas-stage__info-item--preset {
+  color: #818cf8;
+}
+
+.canvas-stage__info-sep {
+  margin: 0 6px;
+  color: rgba(255, 255, 255, 0.18);
+  font-size: 0.7rem;
 }
 </style>

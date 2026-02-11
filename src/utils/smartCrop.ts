@@ -115,13 +115,18 @@ export function getSmartDetectionsState(photoId: string): {
   hasFaces: boolean;
   hasObjects: boolean;
   facePending: boolean;
+  faceDetectionDone: boolean;
 } {
   const cached = detectionCache.get(photoId);
+  const detections = cached?.detections ?? [];
   return {
     hasCache: Boolean(cached),
-    hasFaces: cached?.hasFaces ?? false,
+    // hasFaces 真正表示"是否发现了人脸"（detections 中是否有 kind=face）
+    hasFaces: detections.some(d => d.kind === "face"),
     hasObjects: cached?.hasObjects ?? false,
     facePending: facePending.has(photoId),
+    // faceDetectionDone 表示"人脸检测流程已执行过"（可能 0 个结果）
+    faceDetectionDone: cached?.hasFaces ?? false,
   };
 }
 

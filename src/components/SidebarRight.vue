@@ -470,6 +470,7 @@ import {
 } from "@/utils/smartCrop";
 import type { FilterPreset, PhotoAdjustments } from "@/types";
 import { buildPhotoSelectionInfo } from "@/utils/photoSelectionMetrics";
+import { getVisionClient } from "@/vision/visionClient";
 import AspectBar from "@/components/AspectBar.vue";
 import {
   CROP_CANCEL_EVENT,
@@ -516,15 +517,16 @@ const isFaceDetecting = computed(() => {
 
 const isFaceDetectorSupported = computed(() => {
   if (typeof window === "undefined") return false;
-  return "FaceDetector" in window;
+  // MediaPipe Worker 可用 或 浏览器原生 FaceDetector API 可用，即认为支持
+  return getVisionClient().isEnabled() || "FaceDetector" in window;
 });
 
 const faceDetectHintText = computed(() => {
   if (faceBoxes.value.length > 0 || isFaceDetecting.value) return "";
   if (!isFaceDetectorSupported.value) {
-    return "当前浏览器不支持 FaceDetector API，请使用最新版 Chrome/Edge。";
+    return "人脸检测服务未就绪（MediaPipe 资源缺失且浏览器不支持原生 FaceDetector API）。请执行 pnpm prepare:mediapipe 准备资源后重试。";
   }
-  return "请确保原图中包含人脸，或调整裁剪区域后重试。";
+  return "该照片未检测到人脸，请确保原图中包含清晰人脸。";
 });
 
 const scalePercent = computed(() =>

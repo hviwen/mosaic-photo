@@ -1,5 +1,50 @@
 /// <reference lib="webworker" />
 
+/* ────────────────────────────────────────────────────────────
+ * Module Worker 兼容补丁
+ * ─────────────────────────────────────────────────────────────
+ * Vite 以 { type: 'module' } 创建 Web Worker（即 module Worker）。
+ * module Worker 中 importScripts() 虽然仍存在，但调用时会抛出
+ * TypeError（规范行为）。
+ *
+ * MediaPipe Tasks Vision 的 ESM bundle (tasks-vision.js) 内部
+ * 通过 importScripts() 加载 WASM loader（vision_wasm_internal.js），
+ * 在 module Worker 中会直接报错，导致整个初始化失败。
+ *
+ * 此处用 **同步 XMLHttpRequest + (0,eval)()** 模拟 importScripts，
+ * 让 WASM loader 脚本可以在 module Worker 中正常执行。
+ * 同步 XHR 在 Worker 中是允许的（仅在主线程受限）。
+ * ───────────────────────────────────────────────────────────── */
+{
+  // 检测是否处于 module Worker（importScripts 存在但会报错）
+  let needPatch = false;
+  try {
+    // module Worker 中调用 importScripts() 会抛 TypeError
+    // 先用空调用测试（不传参数时某些浏览器不报错，所以传一个 data: URI）
+    importScripts("data:,");
+  } catch {
+    needPatch = true;
+  }
+
+  if (needPatch) {
+    (self as any).importScripts = function (...urls: string[]) {
+      for (const raw of urls) {
+        const absUrl = new URL(raw, self.location.href).href;
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", absUrl, false); // 同步请求
+        xhr.send();
+        if (xhr.status < 200 || xhr.status >= 300) {
+          throw new Error(
+            `importScripts polyfill: 加载失败 ${raw} (HTTP ${xhr.status})`,
+          );
+        }
+        // (0, eval)() 在全局作用域执行，与 importScripts 语义一致
+        (0, eval)(xhr.responseText);
+      }
+    };
+  }
+}
+
 import type { KeepRegion } from "@/types/vision";
 
 type VisionAssets = {

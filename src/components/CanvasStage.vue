@@ -203,6 +203,8 @@ type PointerMode =
 
 const pointerMode = ref<PointerMode>({ kind: "none" });
 const cropDraft = ref<CropRect | null>(null);
+/** 进入裁剪模式时的初始 cropDraft，用于限制缩小不超过原始尺寸 */
+const initialCropDraft = ref<CropRect | null>(null);
 const rafId = ref<number | null>(null);
 const isSpacePressed = ref(false);
 
@@ -517,22 +519,34 @@ watch(
         // 进入裁剪时保持进入前裁剪视图，保证 Shift+滚轮可双向缩放。
         const safeX = clamp(reference.x, 0, Math.max(0, photo.imageWidth - 1));
         const safeY = clamp(reference.y, 0, Math.max(0, photo.imageHeight - 1));
-        cropDraft.value = {
+        const draft = {
           x: safeX,
           y: safeY,
-          width: clamp(reference.width, 1, Math.max(1, photo.imageWidth - safeX)),
+          width: clamp(
+            reference.width,
+            1,
+            Math.max(1, photo.imageWidth - safeX),
+          ),
           height: clamp(
             reference.height,
             1,
             Math.max(1, photo.imageHeight - safeY),
           ),
         };
+        cropDraft.value = draft;
+        initialCropDraft.value = { ...draft };
       } else {
         cropDraft.value = photo ? { ...photo.crop } : null;
+        initialCropDraft.value = cropDraft.value
+          ? { ...cropDraft.value }
+          : null;
       }
     } else {
       cropDraft.value = null;
+      initialCropDraft.value = null;
     }
+    // 更新 store 中的缩放状态
+    store.cropHasZoomedIn = false;
     requestRender();
   },
 );
@@ -761,23 +775,7 @@ function handlePointerDown(e: PointerEvent) {
     return;
   }
 
-  // 检查是否点击选中照片的手柄
-  if (store.selectedPhoto) {
-    const handle = findHandleAt(store.selectedPhoto, x, y);
-    if (handle) {
-      pointerMode.value = {
-        kind: "resize",
-        id: store.selectedPhoto.id,
-        handle,
-        startScale: store.selectedPhoto.scale,
-        startX: x,
-        startY: y,
-      };
-      return;
-    }
-  }
-
-  // 查找点击的照片
+  // 查找点击的照片（不再检测控制点手柄）
   const photo = findPhotoAt(x, y);
   if (photo) {
     store.selectPhoto(photo.id);
@@ -944,14 +942,19 @@ function adjustCropZoom(
           height: photo.imageWidth / frameAspect,
         };
 
+  // 缩小上限：不超过进入裁剪时的初始尺寸（防止过度缩小产生间隙）
+  const zoomOutLimit = initialCropDraft.value
+    ? Math.min(maxSource.width, initialCropDraft.value.width)
+    : maxSource.width;
+
   const minSourceWidth = Math.min(
-    maxSource.width,
+    zoomOutLimit,
     Math.max(48, frame.width * 0.12),
   );
   const nextWidth = clamp(
     source.width / multiplier,
     minSourceWidth,
-    maxSource.width,
+    zoomOutLimit,
   );
   const nextHeight = nextWidth / frameAspect;
 
@@ -990,6 +993,13 @@ function adjustCropZoom(
     width: nextWidth,
     height: nextHeight,
   };
+
+  // 更新缩放状态：如果 cropDraft 比初始小，说明已放大
+  if (initialCropDraft.value) {
+    store.cropHasZoomedIn =
+      cropDraft.value.width < initialCropDraft.value.width - 1e-4;
+  }
+
   requestRender();
 }
 
@@ -1070,7 +1080,17 @@ function applyCrop() {
   const photo = store.photos.find(p => p.id === store.cropModePhotoId);
   if (!photo) return;
 
-  store.applyCropLocal(photo.id, { ...cropDraft.value });
+  // 计算 scale 补偿：保持图片在 tile 中的显示尺寸不变
+  // 原始显示宽度 = referenceCrop.width * photo.scale
+  // 新显示宽度应相同 = cropDraft.width * newScale
+  // => newScale = referenceCrop.width * photo.scale / cropDraft.width
+  const reference = initialCropDraft.value;
+  let newScale = photo.scale;
+  if (reference && cropDraft.value.width > 0) {
+    newScale = (reference.width * photo.scale) / cropDraft.value.width;
+  }
+
+  store.applyCropLocal(photo.id, { ...cropDraft.value }, newScale);
   store.commitCropMode();
   toast.success("裁剪已应用");
 }
@@ -1189,7 +1209,11 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
 
   if (store.cropModePhotoId === photo.id && cropDraft.value) {
     const frame = getCropFrame(photo);
-    const safeX = clamp(cropDraft.value.x, 0, Math.max(0, photo.imageWidth - 1));
+    const safeX = clamp(
+      cropDraft.value.x,
+      0,
+      Math.max(0, photo.imageWidth - 1),
+    );
     const safeY = clamp(
       cropDraft.value.y,
       0,
@@ -1231,11 +1255,7 @@ function drawPhoto(c: CanvasRenderingContext2D, photo: PhotoEntity) {
       x: safeX,
       y: safeY,
       width: clamp(rawCrop.width, 1, Math.max(1, photo.imageWidth - safeX)),
-      height: clamp(
-        rawCrop.height,
-        1,
-        Math.max(1, photo.imageHeight - safeY),
-      ),
+      height: clamp(rawCrop.height, 1, Math.max(1, photo.imageHeight - safeY)),
     };
     const { hw, hh } = getDrawHalfSize(photo, crop);
     c.drawImage(
@@ -1262,41 +1282,10 @@ function drawSelection(c: CanvasRenderingContext2D, photo: PhotoEntity) {
 
   const { hw, hh } = getDrawHalfSize(photo);
 
-  // 绘制边框
+  // 绘制边框（不再绘制控制点手柄）
   c.strokeStyle = "#6366f1";
   c.lineWidth = 2 / viewport.value.scale;
   c.strokeRect(-hw, -hh, hw * 2, hh * 2);
-
-  // 绘制手柄
-  const handleSize = 10 / viewport.value.scale;
-  c.fillStyle = "#ffffff";
-  c.strokeStyle = "#6366f1";
-
-  const positions = [
-    { x: -hw, y: -hh },
-    { x: 0, y: -hh },
-    { x: hw, y: -hh },
-    { x: -hw, y: 0 },
-    { x: hw, y: 0 },
-    { x: -hw, y: hh },
-    { x: 0, y: hh },
-    { x: hw, y: hh },
-  ];
-
-  for (const pos of positions) {
-    c.fillRect(
-      pos.x - handleSize / 2,
-      pos.y - handleSize / 2,
-      handleSize,
-      handleSize,
-    );
-    c.strokeRect(
-      pos.x - handleSize / 2,
-      pos.y - handleSize / 2,
-      handleSize,
-      handleSize,
-    );
-  }
 
   c.restore();
 }

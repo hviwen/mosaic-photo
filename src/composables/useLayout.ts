@@ -265,7 +265,10 @@ function splitLength(total: number, parts: number): number[] {
   if (parts <= 0) return [];
   const base = Math.floor(total / parts);
   const remainder = total - base * parts;
-  return Array.from({ length: parts }, (_, i) => base + (i < remainder ? 1 : 0));
+  return Array.from(
+    { length: parts },
+    (_, i) => base + (i < remainder ? 1 : 0),
+  );
 }
 
 function buildFallbackGridTiles(
@@ -352,7 +355,21 @@ function partitionRectToTiles(
     };
 
     const rectAspect = rect.w / Math.max(1, rect.h);
-    const preferVertical = rectAspect >= 1;
+    // 优先选择能让子 tile 比例更接近 [4:6, 6:4] 范围的切分方向
+    // 横切（水平分）保持宽度不变、减小高度 → 子 tile 更宽
+    // 竖切（垂直分）保持高度不变、减小宽度 → 子 tile 更高
+    // 如果当前 tile 太宽（> 6:4），应横切使子 tile 更高
+    // 如果当前 tile 太高（< 4:6），应竖切使子 tile 更宽
+    let preferVertical: boolean;
+    if (rectAspect > SMART_CROP_ASPECT_MAX) {
+      // 太宽：竖切（减少宽度）
+      preferVertical = true;
+    } else if (rectAspect < SMART_CROP_ASPECT_MIN) {
+      // 太高：横切（减少高度）
+      preferVertical = false;
+    } else {
+      preferVertical = rectAspect >= 1;
+    }
     let split =
       trySplit(preferVertical) ??
       trySplit(!preferVertical) ??
@@ -377,10 +394,7 @@ function partitionRectToTiles(
       }
     }
 
-    return [
-      ...splitRec(split.a, leftCount),
-      ...splitRec(split.b, rightCount),
-    ];
+    return [...splitRec(split.a, leftCount), ...splitRec(split.b, rightCount)];
   };
 
   return splitRec(root, count);
@@ -396,7 +410,11 @@ function recenterCropWithinBase(
   const safeHeight = clamp(targetHeight, 1, base.height);
   const centerX = preferred.x + preferred.width / 2;
   const centerY = preferred.y + preferred.height / 2;
-  const x = clamp(centerX - safeWidth / 2, base.x, base.x + base.width - safeWidth);
+  const x = clamp(
+    centerX - safeWidth / 2,
+    base.x,
+    base.x + base.width - safeWidth,
+  );
   const y = clamp(
     centerY - safeHeight / 2,
     base.y,
@@ -503,11 +521,12 @@ export function fillArrangePhotos(
     }
 
     const p = photosLeft.splice(bestIdx, 1)[0].photo;
+    // 始终对极端比例图片启用智能裁剪（不再限制 tile 比例范围），
+    // calculateSmartCrop 内部会将裁剪比例限制到 [4:6, 6:4]。
     const shouldSmartCrop = shouldApplySmartCropByImageAspect(
       p.imageWidth,
       p.imageHeight,
-    ) && ta >= SMART_CROP_ASPECT_MIN &&
-      ta <= SMART_CROP_ASPECT_MAX;
+    );
     const detections = shouldSmartCrop ? getSmartDetections(p.id) : undefined;
     let nextCrop = centerCropToAspect(
       p.crop,
@@ -527,7 +546,10 @@ export function fillArrangePhotos(
     if (scale < calculatedScale - 1e-6) {
       const targetCropW = tile.w / scale;
       const targetCropH = tile.h / scale;
-      if (targetCropW <= p.crop.width + 1e-6 && targetCropH <= p.crop.height + 1e-6) {
+      if (
+        targetCropW <= p.crop.width + 1e-6 &&
+        targetCropH <= p.crop.height + 1e-6
+      ) {
         nextCrop = recenterCropWithinBase(
           p.crop,
           nextCrop,
@@ -543,7 +565,12 @@ export function fillArrangePhotos(
     if (scale > calculatedScale + 1e-6) {
       const targetCropW = tile.w / scale;
       const targetCropH = tile.h / scale;
-      nextCrop = recenterCropWithinBase(p.crop, nextCrop, targetCropW, targetCropH);
+      nextCrop = recenterCropWithinBase(
+        p.crop,
+        nextCrop,
+        targetCropW,
+        targetCropH,
+      );
     }
 
     placements.push({

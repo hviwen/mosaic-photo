@@ -163,6 +163,7 @@
                   size="small"
                   variant="outlined"
                   prepend-icon="mdi-magnify-minus-outline"
+                  :disabled="!store.cropHasZoomedIn"
                   @click="zoomCropOut">
                   缩小
                 </v-btn>

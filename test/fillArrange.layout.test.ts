@@ -115,15 +115,14 @@ describe("fillArrangePhotos", () => {
       makePhoto("t3", 800, 1600),
     ];
 
-    const placements = fillArrangePhotos(photos, canvasW, canvasH, { seed: 11 });
+    const placements = fillArrangePhotos(photos, canvasW, canvasH, {
+      seed: 11,
+    });
     expect(placements).toHaveLength(photos.length);
 
     const center = { x: canvasW / 2, y: canvasH / 2 };
     const distById = new Map(
-      placements.map(p => [
-        p.id,
-        Math.hypot(p.cx - center.x, p.cy - center.y),
-      ]),
+      placements.map(p => [p.id, Math.hypot(p.cx - center.x, p.cy - center.y)]),
     );
 
     const squareAvgDist =

@@ -183,12 +183,14 @@ export const useMosaicStore = defineStore("mosaic", () => {
     const photo = photos.value.find(p => p.id === photoId);
     if (!photo?.layoutCrop) return;
     const ta = photo.layoutCrop.width / Math.max(1, photo.layoutCrop.height);
+    // 始终尝试智能裁剪（calculateSmartCrop 内部会限制裁剪比例到 [4:6, 6:4]）
     const shouldSmartCrop = shouldApplySmartCropByImageAspect(
       photo.imageWidth,
       photo.imageHeight,
-    ) && ta >= SMART_CROP_ASPECT_MIN &&
-      ta <= SMART_CROP_ASPECT_MAX;
-    const detections = shouldSmartCrop ? getSmartDetections(photoId) : undefined;
+    );
+    const detections = shouldSmartCrop
+      ? getSmartDetections(photoId)
+      : undefined;
     const next = centerCropToAspect(
       photo.crop,
       ta,
@@ -331,6 +333,8 @@ export const useMosaicStore = defineStore("mosaic", () => {
     layoutCrop?: CropRect;
   };
   const cropModeSnapshot = ref<CropModeSnapshot | null>(null);
+  /** 裁剪模式下是否已被放大（用于控制缩小按钮是否可用） */
+  const cropHasZoomedIn = ref<boolean>(false);
 
   function snapshotCropRect(crop: CropRect): CropRect {
     return { x: crop.x, y: crop.y, width: crop.width, height: crop.height };
@@ -892,8 +896,14 @@ export const useMosaicStore = defineStore("mosaic", () => {
   /**
    * 裁剪确认但不触发全局重排：仅更新当前照片的 crop，保持其他照片位置不变。
    * 用于裁剪模式下的确认操作，避免 autoLayout() 打乱已有布局。
+   * @param compensatedScale 可选，传入时同步更新 photo.scale（补偿裁剪区域变化，保持显示尺寸不变）
    */
-  function applyCropLocal(id: string, crop: CropRect, label: string = "裁剪") {
+  function applyCropLocal(
+    id: string,
+    crop: CropRect,
+    compensatedScale?: number,
+    label: string = "裁剪",
+  ) {
     const photo = photos.value.find(p => p.id === id);
     if (!photo) return;
 
@@ -911,6 +921,14 @@ export const useMosaicStore = defineStore("mosaic", () => {
 
     photo.crop = clampCrop(crop, photo.imageWidth, photo.imageHeight);
     photo.layoutCrop = undefined;
+    // 补偿 scale，保持图片显示尺寸不变
+    if (
+      compensatedScale != null &&
+      isFinite(compensatedScale) &&
+      compensatedScale > 0
+    ) {
+      photo.scale = compensatedScale;
+    }
     // 不调用 autoLayout()，保持其他照片位置不变
 
     const after = snapshotCanvas();
@@ -1175,13 +1193,15 @@ export const useMosaicStore = defineStore("mosaic", () => {
       width: loaded.imageWidth,
       height: loaded.imageHeight,
     };
-    const replacementDetections = shouldApplySmartCropByImageAspect(
-      loaded.imageWidth,
-      loaded.imageHeight,
-    ) && targetAspect >= SMART_CROP_ASPECT_MIN &&
+    const replacementDetections =
+      shouldApplySmartCropByImageAspect(
+        loaded.imageWidth,
+        loaded.imageHeight,
+      ) &&
+      targetAspect >= SMART_CROP_ASPECT_MIN &&
       targetAspect <= SMART_CROP_ASPECT_MAX
-      ? getSmartDetections(id)
-      : undefined;
+        ? getSmartDetections(id)
+        : undefined;
     const nextCrop = centerCropToAspect(
       fullCrop,
       targetAspect,
@@ -1508,6 +1528,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     photos,
     selectedPhotoId,
     cropModePhotoId,
+    cropHasZoomedIn,
     allowPhotoMove,
     exportFormat,
     exportQuality,

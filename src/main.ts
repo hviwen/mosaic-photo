@@ -4,12 +4,20 @@ import App from './App.vue'
 import './styles/main.css'
 import { watch } from 'vue'
 import vuetify from '@/plugins/vuetify'
+import { inject } from '@vercel/analytics'
+import { injectSpeedInsights } from '@vercel/speed-insights'
 
 import { useThemeStore } from '@/stores/theme'
 import { useUiStore } from '@/stores/ui'
 import { useMosaicStore } from '@/stores/mosaic'
 import { loadLatestProject, scheduleAutosave } from '@/project/persistence'
 import { hydratePhotosFromProject } from '@/project/applyProject'
+
+// Initialize Vercel Analytics
+inject()
+
+// Initialize Vercel Speed Insights
+injectSpeedInsights()
 
 const app = createApp(App)
 

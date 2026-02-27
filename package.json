@@ -18,6 +18,7 @@
   "dependencies": {
     "@mdi/font": "^7.4.47",
     "@mediapipe/tasks-vision": "^0.10.32",
+    "@vercel/analytics": "^1.6.1",
     "@vueuse/core": "^10.11.1",
     "fflate": "^0.8.2",
     "pinia": "^2.3.1",

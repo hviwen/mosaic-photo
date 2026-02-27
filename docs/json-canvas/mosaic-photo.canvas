@@ -1,0 +1,1130 @@
+{
+  "nodes": [
+    {
+      "id": "g-overview",
+      "type": "group",
+      "x": 0,
+      "y": 0,
+      "width": 1800,
+      "height": 700,
+      "label": "项目总览",
+      "color": "5"
+    },
+    {
+      "id": "g-ui",
+      "type": "group",
+      "x": 0,
+      "y": 760,
+      "width": 1800,
+      "height": 1500,
+      "label": "入口与界面层",
+      "color": "4"
+    },
+    {
+      "id": "g-store",
+      "type": "group",
+      "x": 0,
+      "y": 2320,
+      "width": 1800,
+      "height": 900,
+      "label": "状态与交互编排",
+      "color": "3"
+    },
+    {
+      "id": "g-template",
+      "type": "group",
+      "x": 0,
+      "y": 3280,
+      "width": 1800,
+      "height": 900,
+      "label": "模板流程",
+      "color": "3"
+    },
+    {
+      "id": "g-algo",
+      "type": "group",
+      "x": 2000,
+      "y": 0,
+      "width": 1800,
+      "height": 1500,
+      "label": "排版/导出/图像算法",
+      "color": "2"
+    },
+    {
+      "id": "g-worker",
+      "type": "group",
+      "x": 2000,
+      "y": 1560,
+      "width": 1800,
+      "height": 1100,
+      "label": "视觉推理与并行计算",
+      "color": "6"
+    },
+    {
+      "id": "g-test-tooling",
+      "type": "group",
+      "x": 2000,
+      "y": 2720,
+      "width": 1800,
+      "height": 1300,
+      "label": "测试与构建工具链",
+      "color": "5"
+    },
+    {
+      "id": "g-project",
+      "type": "group",
+      "x": 4000,
+      "y": 0,
+      "width": 1800,
+      "height": 1700,
+      "label": "工程持久化与导入导出",
+      "color": "1"
+    },
+    {
+      "id": "g-skills",
+      "type": "group",
+      "x": 4000,
+      "y": 1760,
+      "width": 1800,
+      "height": 2000,
+      "label": "合并技能视图",
+      "color": "4"
+    },
+    {
+      "id": "t-overview",
+      "type": "text",
+      "x": 40,
+      "y": 60,
+      "width": 700,
+      "height": 560,
+      "text": "# Mosaic Photo 项目总览\n\n- 技术栈：Vue 3 + Vite + TypeScript + Pinia + Vuetify\n- 关键脚本：dev / build / test / lint / prepare:mediapipe\n- 核心数据流：\n  1. 组件层触发交互\n  2. Store 编排状态与动作\n  3. 算法层完成排版/导出/智能裁剪\n  4. Worker 承担异步布局与视觉推理\n  5. Project 模块负责 IndexedDB 持久化与工程文件\n- 本 Canvas：模块级视图，面向快速定位与协作沟通",
+      "color": "5"
+    },
+    {
+      "id": "f-package-json",
+      "type": "file",
+      "x": 800,
+      "y": 80,
+      "width": 940,
+      "height": 140,
+      "file": "package.json",
+      "color": "5"
+    },
+    {
+      "id": "t-ui",
+      "type": "text",
+      "x": 40,
+      "y": 820,
+      "width": 700,
+      "height": 680,
+      "text": "# UI 层职责\n\n- 应用入口初始化 Pinia / 主题 / 自动保存\n- 左侧栏：导入导出、排版、画布与工程操作\n- 中央画布：渲染、缩放、拖拽、裁剪交互\n- 右侧栏：属性面板、滤镜、图层与替换\n- Toast：统一提示反馈\n\n该层主要通过 Store 触发业务动作。",
+      "color": "4"
+    },
+    {
+      "id": "f-main-ts",
+      "type": "file",
+      "x": 800,
+      "y": 820,
+      "width": 940,
+      "height": 140,
+      "file": "src/main.ts",
+      "color": "4"
+    },
+    {
+      "id": "f-app-vue",
+      "type": "file",
+      "x": 800,
+      "y": 990,
+      "width": 940,
+      "height": 140,
+      "file": "src/App.vue",
+      "color": "4"
+    },
+    {
+      "id": "f-canvas-stage-vue",
+      "type": "file",
+      "x": 800,
+      "y": 1160,
+      "width": 940,
+      "height": 140,
+      "file": "src/components/CanvasStage.vue",
+      "color": "4"
+    },
+    {
+      "id": "f-sidebar-left-vue",
+      "type": "file",
+      "x": 800,
+      "y": 1330,
+      "width": 940,
+      "height": 140,
+      "file": "src/components/SidebarLeft.vue",
+      "color": "4"
+    },
+    {
+      "id": "f-sidebar-right-vue",
+      "type": "file",
+      "x": 800,
+      "y": 1500,
+      "width": 940,
+      "height": 140,
+      "file": "src/components/SidebarRight.vue",
+      "color": "4"
+    },
+    {
+      "id": "f-photo-list-vue",
+      "type": "file",
+      "x": 800,
+      "y": 1670,
+      "width": 940,
+      "height": 140,
+      "file": "src/components/PhotoList.vue",
+      "color": "4"
+    },
+    {
+      "id": "f-toast-container-vue",
+      "type": "file",
+      "x": 800,
+      "y": 1840,
+      "width": 940,
+      "height": 140,
+      "file": "src/components/ToastContainer.vue",
+      "color": "4"
+    },
+    {
+      "id": "t-store",
+      "type": "text",
+      "x": 40,
+      "y": 2380,
+      "width": 700,
+      "height": 700,
+      "text": "# Store 层职责\n\n- `mosaic`：核心状态、导入、排版、裁剪、历史记录、导出配置\n- `theme`：主题切换与 DOM 同步\n- `ui`：侧栏折叠状态\n- `toast`：全局提示队列\n\nStore 是 UI 与算法/Worker/Project 的中枢。",
+      "color": "3"
+    },
+    {
+      "id": "f-store-mosaic",
+      "type": "file",
+      "x": 800,
+      "y": 2380,
+      "width": 940,
+      "height": 140,
+      "file": "src/stores/mosaic.ts",
+      "color": "3"
+    },
+    {
+      "id": "f-store-theme",
+      "type": "file",
+      "x": 800,
+      "y": 2540,
+      "width": 940,
+      "height": 140,
+      "file": "src/stores/theme.ts",
+      "color": "3"
+    },
+    {
+      "id": "f-store-ui",
+      "type": "file",
+      "x": 800,
+      "y": 2700,
+      "width": 940,
+      "height": 140,
+      "file": "src/stores/ui.ts",
+      "color": "3"
+    },
+    {
+      "id": "f-store-toast",
+      "type": "file",
+      "x": 800,
+      "y": 2860,
+      "width": 940,
+      "height": 140,
+      "file": "src/stores/toast.ts",
+      "color": "3"
+    },
+    {
+      "id": "t-template",
+      "type": "text",
+      "x": 40,
+      "y": 3340,
+      "width": 700,
+      "height": 620,
+      "text": "# 模板流程\n\n- 用于规划与修复流程编排\n- 支持从需求到实现的规范化输出\n- 与项目总览形成“流程 -> 实施”的闭环",
+      "color": "3"
+    },
+    {
+      "id": "f-template-ppr",
+      "type": "file",
+      "x": 800,
+      "y": 3340,
+      "width": 940,
+      "height": 140,
+      "file": ".template/.ppr.md",
+      "color": "3"
+    },
+    {
+      "id": "f-template-ppr-fix",
+      "type": "file",
+      "x": 800,
+      "y": 3520,
+      "width": 940,
+      "height": 140,
+      "file": ".template/.ppr.fix.md",
+      "color": "3"
+    },
+    {
+      "id": "f-template-ppr-fix-polish-next",
+      "type": "file",
+      "x": 800,
+      "y": 3700,
+      "width": 940,
+      "height": 140,
+      "file": ".template/.ppr.fix.polish.next.md",
+      "color": "3"
+    },
+    {
+      "id": "t-algo",
+      "type": "text",
+      "x": 2040,
+      "y": 60,
+      "width": 700,
+      "height": 620,
+      "text": "# 算法层职责\n\n- `useLayout`：铺满布局与排版策略\n- `useExport`：导出分辨率、编码与质量路径\n- `smartCrop`：人脸/对象驱动的智能裁剪\n- `image`：图片加载、缩放、格式与下载工具\n- `fillArrangeAssignment` / `fillArrangeValidation`：分配与校验\n- `photoSelectionMetrics`：选中图片指标计算",
+      "color": "2"
+    },
+    {
+      "id": "f-use-layout",
+      "type": "file",
+      "x": 2800,
+      "y": 80,
+      "width": 940,
+      "height": 140,
+      "file": "src/composables/useLayout.ts",
+      "color": "2"
+    },
+    {
+      "id": "f-use-export",
+      "type": "file",
+      "x": 2800,
+      "y": 250,
+      "width": 940,
+      "height": 140,
+      "file": "src/composables/useExport.ts",
+      "color": "2"
+    },
+    {
+      "id": "f-smart-crop",
+      "type": "file",
+      "x": 2800,
+      "y": 420,
+      "width": 940,
+      "height": 140,
+      "file": "src/utils/smartCrop.ts",
+      "color": "2"
+    },
+    {
+      "id": "f-image-util",
+      "type": "file",
+      "x": 2800,
+      "y": 590,
+      "width": 940,
+      "height": 140,
+      "file": "src/utils/image.ts",
+      "color": "2"
+    },
+    {
+      "id": "f-fill-assign",
+      "type": "file",
+      "x": 2800,
+      "y": 760,
+      "width": 940,
+      "height": 140,
+      "file": "src/utils/fillArrangeAssignment.ts",
+      "color": "2"
+    },
+    {
+      "id": "f-fill-validate",
+      "type": "file",
+      "x": 2800,
+      "y": 930,
+      "width": 940,
+      "height": 140,
+      "file": "src/utils/fillArrangeValidation.ts",
+      "color": "2"
+    },
+    {
+      "id": "f-photo-selection-metrics",
+      "type": "file",
+      "x": 2800,
+      "y": 1100,
+      "width": 940,
+      "height": 140,
+      "file": "src/utils/photoSelectionMetrics.ts",
+      "color": "2"
+    },
+    {
+      "id": "t-worker",
+      "type": "text",
+      "x": 2040,
+      "y": 1620,
+      "width": 700,
+      "height": 500,
+      "text": "# Worker 层职责\n\n- `visionClient`：主线程到视觉 Worker 的桥接\n- `visionWorker`：MediaPipe 检测、预览 bitmap 与检测框\n- `layoutWorker`：异步铺满布局计算\n- `vision/assets` + 准备脚本：模型与 wasm 资源定位",
+      "color": "6"
+    },
+    {
+      "id": "f-vision-client",
+      "type": "file",
+      "x": 2800,
+      "y": 1640,
+      "width": 940,
+      "height": 140,
+      "file": "src/vision/visionClient.ts",
+      "color": "6"
+    },
+    {
+      "id": "f-vision-worker",
+      "type": "file",
+      "x": 2800,
+      "y": 1810,
+      "width": 940,
+      "height": 140,
+      "file": "src/workers/visionWorker.ts",
+      "color": "6"
+    },
+    {
+      "id": "f-layout-worker",
+      "type": "file",
+      "x": 2800,
+      "y": 1980,
+      "width": 940,
+      "height": 140,
+      "file": "src/workers/layoutWorker.ts",
+      "color": "6"
+    },
+    {
+      "id": "f-vision-assets",
+      "type": "file",
+      "x": 2800,
+      "y": 2150,
+      "width": 940,
+      "height": 140,
+      "file": "src/vision/assets.ts",
+      "color": "6"
+    },
+    {
+      "id": "f-prepare-mediapipe",
+      "type": "file",
+      "x": 2800,
+      "y": 2320,
+      "width": 940,
+      "height": 140,
+      "file": "scripts/prepare-mediapipe-assets.mjs",
+      "color": "6"
+    },
+    {
+      "id": "t-test-tooling",
+      "type": "text",
+      "x": 2040,
+      "y": 2780,
+      "width": 700,
+      "height": 700,
+      "text": "# 测试与工具链\n\n- 布局/比例/压力测试覆盖核心排版逻辑\n- 智能裁剪测试覆盖比例约束与主体保护\n- 选中指标测试保障属性展示一致性\n- Vite/Vitest/ESLint 负责构建、测试与静态检查",
+      "color": "5"
+    },
+    {
+      "id": "f-test-fill-layout",
+      "type": "file",
+      "x": 2800,
+      "y": 2800,
+      "width": 940,
+      "height": 120,
+      "file": "test/fillArrange.layout.test.ts",
+      "color": "5"
+    },
+    {
+      "id": "f-test-fill-aspect-policy",
+      "type": "file",
+      "x": 2800,
+      "y": 2950,
+      "width": 940,
+      "height": 120,
+      "file": "test/fillArrange.aspect-policy.test.ts",
+      "color": "5"
+    },
+    {
+      "id": "f-test-fill-stress",
+      "type": "file",
+      "x": 2800,
+      "y": 3100,
+      "width": 940,
+      "height": 120,
+      "file": "test/fillArrange.stress.test.ts",
+      "color": "5"
+    },
+    {
+      "id": "f-test-smart-crop",
+      "type": "file",
+      "x": 2800,
+      "y": 3250,
+      "width": 940,
+      "height": 120,
+      "file": "test/smartCrop.calculate.test.ts",
+      "color": "5"
+    },
+    {
+      "id": "f-test-photo-selection",
+      "type": "file",
+      "x": 2800,
+      "y": 3400,
+      "width": 940,
+      "height": 120,
+      "file": "test/photoSelectionMetrics.test.ts",
+      "color": "5"
+    },
+    {
+      "id": "f-vite-config",
+      "type": "file",
+      "x": 2800,
+      "y": 3550,
+      "width": 940,
+      "height": 120,
+      "file": "vite.config.ts",
+      "color": "5"
+    },
+    {
+      "id": "f-vitest-config",
+      "type": "file",
+      "x": 2800,
+      "y": 3700,
+      "width": 940,
+      "height": 120,
+      "file": "vitest.config.ts",
+      "color": "5"
+    },
+    {
+      "id": "f-eslint-config",
+      "type": "file",
+      "x": 2800,
+      "y": 3850,
+      "width": 940,
+      "height": 120,
+      "file": "eslint.config.js",
+      "color": "5"
+    },
+    {
+      "id": "t-project",
+      "type": "text",
+      "x": 4040,
+      "y": 60,
+      "width": 700,
+      "height": 620,
+      "text": "# Project 模块职责\n\n- `persistence`：自动保存与恢复\n- `projectFile`：`.mosaicproj` 导入导出\n- `fileFormat`：zip 归档结构\n- `schema/serialize/applyProject`：模型、序列化与回放\n- `assets/projects/idb`：IndexedDB 资产与工程存储",
+      "color": "1"
+    },
+    {
+      "id": "f-project-persistence",
+      "type": "file",
+      "x": 4800,
+      "y": 80,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/persistence.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-project-file",
+      "type": "file",
+      "x": 4800,
+      "y": 230,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/projectFile.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-file-format",
+      "type": "file",
+      "x": 4800,
+      "y": 380,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/fileFormat.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-schema",
+      "type": "file",
+      "x": 4800,
+      "y": 530,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/schema.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-serialize",
+      "type": "file",
+      "x": 4800,
+      "y": 680,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/serialize.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-apply",
+      "type": "file",
+      "x": 4800,
+      "y": 830,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/applyProject.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-assets",
+      "type": "file",
+      "x": 4800,
+      "y": 980,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/assets.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-projects",
+      "type": "file",
+      "x": 4800,
+      "y": 1130,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/projects.ts",
+      "color": "1"
+    },
+    {
+      "id": "f-project-idb",
+      "type": "file",
+      "x": 4800,
+      "y": 1280,
+      "width": 940,
+      "height": 120,
+      "file": "src/project/idb.ts",
+      "color": "1"
+    },
+    {
+      "id": "t-skills-defuddle",
+      "type": "text",
+      "x": 4040,
+      "y": 1840,
+      "width": 700,
+      "height": 140,
+      "text": "## defuddle\n提取网页正文为干净 Markdown，减少噪音与 token 消耗。",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-defuddle-codex",
+      "type": "file",
+      "x": 4800,
+      "y": 1840,
+      "width": 940,
+      "height": 60,
+      "file": ".codex/skills/defuddle/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-defuddle-claude",
+      "type": "file",
+      "x": 4800,
+      "y": 1910,
+      "width": 940,
+      "height": 60,
+      "file": ".claude/skills/defuddle/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "t-skills-json-canvas",
+      "type": "text",
+      "x": 4040,
+      "y": 2060,
+      "width": 700,
+      "height": 140,
+      "text": "## json-canvas\n创建与编辑 `.canvas`，支持节点、连线、分组组织。",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-json-canvas-codex",
+      "type": "file",
+      "x": 4800,
+      "y": 2060,
+      "width": 940,
+      "height": 60,
+      "file": ".codex/skills/json-canvas/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-json-canvas-claude",
+      "type": "file",
+      "x": 4800,
+      "y": 2130,
+      "width": 940,
+      "height": 60,
+      "file": ".claude/skills/json-canvas/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "t-skills-obsidian-cli",
+      "type": "text",
+      "x": 4040,
+      "y": 2280,
+      "width": 700,
+      "height": 140,
+      "text": "## obsidian-cli\n通过 CLI 管理 Obsidian 仓库、任务与插件调试。",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-obsidian-cli-codex",
+      "type": "file",
+      "x": 4800,
+      "y": 2280,
+      "width": 940,
+      "height": 60,
+      "file": ".codex/skills/obsidian-cli/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-obsidian-cli-claude",
+      "type": "file",
+      "x": 4800,
+      "y": 2350,
+      "width": 940,
+      "height": 60,
+      "file": ".claude/skills/obsidian-cli/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "t-skills-obsidian-bases",
+      "type": "text",
+      "x": 4040,
+      "y": 2500,
+      "width": 700,
+      "height": 140,
+      "text": "## obsidian-bases\n构建 `.base` 视图，支持过滤、公式与汇总。",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-obsidian-bases-codex",
+      "type": "file",
+      "x": 4800,
+      "y": 2500,
+      "width": 940,
+      "height": 60,
+      "file": ".codex/skills/obsidian-bases/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-obsidian-bases-claude",
+      "type": "file",
+      "x": 4800,
+      "y": 2570,
+      "width": 940,
+      "height": 60,
+      "file": ".claude/skills/obsidian-bases/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "t-skills-obsidian-markdown",
+      "type": "text",
+      "x": 4040,
+      "y": 2720,
+      "width": 700,
+      "height": 140,
+      "text": "## obsidian-markdown\n编写 Obsidian 风格 Markdown（wikilink/callout/frontmatter）。",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-obsidian-markdown-codex",
+      "type": "file",
+      "x": 4800,
+      "y": 2720,
+      "width": 940,
+      "height": 60,
+      "file": ".codex/skills/obsidian-markdown/SKILL.md",
+      "color": "4"
+    },
+    {
+      "id": "f-skill-obsidian-markdown-claude",
+      "type": "file",
+      "x": 4800,
+      "y": 2790,
+      "width": 940,
+      "height": 60,
+      "file": ".claude/skills/obsidian-markdown/SKILL.md",
+      "color": "4"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-main-overview-ui",
+      "fromNode": "t-overview",
+      "toNode": "t-ui",
+      "label": "主链",
+      "color": "5"
+    },
+    {
+      "id": "e-main-ui-store",
+      "fromNode": "t-ui",
+      "toNode": "t-store",
+      "label": "主链",
+      "color": "4"
+    },
+    {
+      "id": "e-main-store-algo",
+      "fromNode": "t-store",
+      "toNode": "t-algo",
+      "label": "主链",
+      "color": "3"
+    },
+    {
+      "id": "e-main-algo-worker",
+      "fromNode": "t-algo",
+      "toNode": "t-worker",
+      "label": "主链",
+      "color": "2"
+    },
+    {
+      "id": "e-main-worker-project",
+      "fromNode": "t-worker",
+      "toNode": "t-project",
+      "label": "主链",
+      "color": "6"
+    },
+    {
+      "id": "e-main-project-test",
+      "fromNode": "t-project",
+      "toNode": "t-test-tooling",
+      "label": "主链",
+      "color": "1"
+    },
+    {
+      "id": "e-ui-main-mosaic",
+      "fromNode": "f-main-ts",
+      "toNode": "f-store-mosaic",
+      "label": "UI 到状态",
+      "color": "4"
+    },
+    {
+      "id": "e-ui-canvas-mosaic",
+      "fromNode": "f-canvas-stage-vue",
+      "toNode": "f-store-mosaic",
+      "label": "UI 到状态",
+      "color": "4"
+    },
+    {
+      "id": "e-ui-left-mosaic",
+      "fromNode": "f-sidebar-left-vue",
+      "toNode": "f-store-mosaic",
+      "label": "UI 到状态",
+      "color": "4"
+    },
+    {
+      "id": "e-ui-right-mosaic",
+      "fromNode": "f-sidebar-right-vue",
+      "toNode": "f-store-mosaic",
+      "label": "UI 到状态",
+      "color": "4"
+    },
+    {
+      "id": "e-ui-app-ui-store",
+      "fromNode": "f-app-vue",
+      "toNode": "f-store-ui",
+      "label": "UI 到状态",
+      "color": "4"
+    },
+    {
+      "id": "e-store-layout",
+      "fromNode": "f-store-mosaic",
+      "toNode": "f-use-layout",
+      "label": "Store 依赖",
+      "color": "3"
+    },
+    {
+      "id": "e-store-smart-crop",
+      "fromNode": "f-store-mosaic",
+      "toNode": "f-smart-crop",
+      "label": "Store 依赖",
+      "color": "3"
+    },
+    {
+      "id": "e-store-vision-client",
+      "fromNode": "f-store-mosaic",
+      "toNode": "f-vision-client",
+      "label": "Store 依赖",
+      "color": "3"
+    },
+    {
+      "id": "e-store-layout-worker",
+      "fromNode": "f-store-mosaic",
+      "toNode": "f-layout-worker",
+      "label": "Store 依赖",
+      "color": "3"
+    },
+    {
+      "id": "e-store-project-assets",
+      "fromNode": "f-store-mosaic",
+      "toNode": "f-project-assets",
+      "label": "Store 依赖",
+      "color": "3"
+    },
+    {
+      "id": "e-left-export",
+      "fromNode": "f-sidebar-left-vue",
+      "toNode": "f-use-export",
+      "label": "左侧栏能力扩展",
+      "color": "4"
+    },
+    {
+      "id": "e-left-project-file",
+      "fromNode": "f-sidebar-left-vue",
+      "toNode": "f-project-project-file",
+      "label": "左侧栏能力扩展",
+      "color": "4"
+    },
+    {
+      "id": "e-right-vision",
+      "fromNode": "f-sidebar-right-vue",
+      "toNode": "f-vision-client",
+      "label": "右侧栏视觉能力",
+      "color": "4"
+    },
+    {
+      "id": "e-layout-assign",
+      "fromNode": "f-use-layout",
+      "toNode": "f-fill-assign",
+      "label": "算法内部",
+      "color": "2"
+    },
+    {
+      "id": "e-layout-validate",
+      "fromNode": "f-use-layout",
+      "toNode": "f-fill-validate",
+      "label": "算法内部",
+      "color": "2"
+    },
+    {
+      "id": "e-layout-smart-crop",
+      "fromNode": "f-use-layout",
+      "toNode": "f-smart-crop",
+      "label": "算法内部",
+      "color": "2"
+    },
+    {
+      "id": "e-export-image",
+      "fromNode": "f-use-export",
+      "toNode": "f-image-util",
+      "label": "算法内部",
+      "color": "2"
+    },
+    {
+      "id": "e-export-project-assets",
+      "fromNode": "f-use-export",
+      "toNode": "f-project-assets",
+      "label": "算法内部",
+      "color": "2"
+    },
+    {
+      "id": "e-vision-client-worker",
+      "fromNode": "f-vision-client",
+      "toNode": "f-vision-worker",
+      "label": "Worker 内部",
+      "color": "6"
+    },
+    {
+      "id": "e-vision-worker-prepare",
+      "fromNode": "f-vision-worker",
+      "toNode": "f-prepare-mediapipe",
+      "label": "Worker 内部",
+      "color": "6"
+    },
+    {
+      "id": "e-project-file-format",
+      "fromNode": "f-project-project-file",
+      "toNode": "f-project-file-format",
+      "label": "工程模块内部",
+      "color": "1"
+    },
+    {
+      "id": "e-project-serialize",
+      "fromNode": "f-project-project-file",
+      "toNode": "f-project-serialize",
+      "label": "工程模块内部",
+      "color": "1"
+    },
+    {
+      "id": "e-project-apply",
+      "fromNode": "f-project-project-file",
+      "toNode": "f-project-apply",
+      "label": "工程模块内部",
+      "color": "1"
+    },
+    {
+      "id": "e-persistence-projects",
+      "fromNode": "f-project-persistence",
+      "toNode": "f-project-projects",
+      "label": "工程模块内部",
+      "color": "1"
+    },
+    {
+      "id": "e-persistence-assets",
+      "fromNode": "f-project-persistence",
+      "toNode": "f-project-assets",
+      "label": "工程模块内部",
+      "color": "1"
+    },
+    {
+      "id": "e-projects-idb",
+      "fromNode": "f-project-projects",
+      "toNode": "f-project-idb",
+      "label": "工程模块内部",
+      "color": "1"
+    },
+    {
+      "id": "e-assets-idb",
+      "fromNode": "f-project-assets",
+      "toNode": "f-project-idb",
+      "label": "工程模块内部",
+      "color": "1"
+    },
+    {
+      "id": "e-test-layout",
+      "fromNode": "f-test-fill-layout",
+      "toNode": "f-use-layout",
+      "label": "测试映射",
+      "color": "5"
+    },
+    {
+      "id": "e-test-aspect",
+      "fromNode": "f-test-fill-aspect-policy",
+      "toNode": "f-use-layout",
+      "label": "测试映射",
+      "color": "5"
+    },
+    {
+      "id": "e-test-stress",
+      "fromNode": "f-test-fill-stress",
+      "toNode": "f-use-layout",
+      "label": "测试映射",
+      "color": "5"
+    },
+    {
+      "id": "e-test-smart-crop",
+      "fromNode": "f-test-smart-crop",
+      "toNode": "f-smart-crop",
+      "label": "测试映射",
+      "color": "5"
+    },
+    {
+      "id": "e-test-photo-selection",
+      "fromNode": "f-test-photo-selection",
+      "toNode": "f-photo-selection-metrics",
+      "label": "测试映射",
+      "color": "5"
+    },
+    {
+      "id": "e-skill-defuddle-codex",
+      "fromNode": "t-skills-defuddle",
+      "toNode": "f-skill-defuddle-codex",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-defuddle-claude",
+      "fromNode": "t-skills-defuddle",
+      "toNode": "f-skill-defuddle-claude",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-json-canvas-codex",
+      "fromNode": "t-skills-json-canvas",
+      "toNode": "f-skill-json-canvas-codex",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-json-canvas-claude",
+      "fromNode": "t-skills-json-canvas",
+      "toNode": "f-skill-json-canvas-claude",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-obsidian-cli-codex",
+      "fromNode": "t-skills-obsidian-cli",
+      "toNode": "f-skill-obsidian-cli-codex",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-obsidian-cli-claude",
+      "fromNode": "t-skills-obsidian-cli",
+      "toNode": "f-skill-obsidian-cli-claude",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-obsidian-bases-codex",
+      "fromNode": "t-skills-obsidian-bases",
+      "toNode": "f-skill-obsidian-bases-codex",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-obsidian-bases-claude",
+      "fromNode": "t-skills-obsidian-bases",
+      "toNode": "f-skill-obsidian-bases-claude",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-obsidian-markdown-codex",
+      "fromNode": "t-skills-obsidian-markdown",
+      "toNode": "f-skill-obsidian-markdown-codex",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-skill-obsidian-markdown-claude",
+      "fromNode": "t-skills-obsidian-markdown",
+      "toNode": "f-skill-obsidian-markdown-claude",
+      "label": "技能来源",
+      "color": "4"
+    },
+    {
+      "id": "e-template-ppr",
+      "fromNode": "t-template",
+      "toNode": "f-template-ppr",
+      "label": "模板映射",
+      "color": "3"
+    },
+    {
+      "id": "e-template-ppr-fix",
+      "fromNode": "t-template",
+      "toNode": "f-template-ppr-fix",
+      "label": "模板映射",
+      "color": "3"
+    },
+    {
+      "id": "e-template-ppr-fix-polish-next",
+      "fromNode": "t-template",
+      "toNode": "f-template-ppr-fix-polish-next",
+      "label": "模板映射",
+      "color": "3"
+    },
+    {
+      "id": "e-template-to-overview",
+      "fromNode": "t-template",
+      "toNode": "t-overview",
+      "label": "流程支持实施",
+      "color": "3"
+    }
+  ]
+}

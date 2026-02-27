@@ -1,5 +1,6 @@
 <template>
   <v-app>
+    <Analytics />
     <v-navigation-drawer
       location="left"
       permanent
@@ -32,6 +33,7 @@
 </template>
 
 <script setup lang="ts">
+import { Analytics } from '@vercel/analytics/vue'
 import SidebarLeft from '@/components/SidebarLeft.vue'
 import SidebarRight from '@/components/SidebarRight.vue'
 import CanvasStage from '@/components/CanvasStage.vue'

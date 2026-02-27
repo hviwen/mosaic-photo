@@ -13,6 +13,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
+      // Provide a stub for vue-router since it's an optional peer dependency
+      "vue-router": resolve(__dirname, "src/utils/vue-router-stub.ts"),
     },
   },
   server: {

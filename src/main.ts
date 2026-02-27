@@ -4,16 +4,12 @@ import App from './App.vue'
 import './styles/main.css'
 import { watch } from 'vue'
 import vuetify from '@/plugins/vuetify'
-import { inject } from '@vercel/analytics'
 
 import { useThemeStore } from '@/stores/theme'
 import { useUiStore } from '@/stores/ui'
 import { useMosaicStore } from '@/stores/mosaic'
 import { loadLatestProject, scheduleAutosave } from '@/project/persistence'
 import { hydratePhotosFromProject } from '@/project/applyProject'
-
-// Initialize Vercel Analytics
-inject()
 
 const app = createApp(App)
 

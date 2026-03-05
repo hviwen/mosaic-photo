@@ -1,0 +1,275 @@
+{
+  "common": {
+    "appName": "MosaicPhoto",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "clear": "Clear",
+    "apply": "Apply",
+    "reset": "Reset",
+    "delete": "Delete",
+    "processing": "Processing...",
+    "language": "Language",
+    "axisX": "X",
+    "axisY": "Y",
+    "imageFileTypes": "JPEG, PNG, WebP, GIF, HEIC",
+    "theme": {
+      "switchToLight": "Switch to light theme",
+      "switchToDark": "Switch to dark theme"
+    },
+    "noData": "No data"
+  },
+  "locale": {
+    "zh-CN": "简体中文",
+    "en-US": "English",
+    "ja-JP": "日本語",
+    "ko-KR": "한국어"
+  },
+  "sidebar": {
+    "left": {
+      "uploadPhotos": "Upload photos",
+      "canvasSize": "Canvas size",
+      "autoLayout": "Auto layout",
+      "exportMosaic": "Export mosaic",
+      "section": {
+        "project": "Project",
+        "upload": "Upload photos",
+        "canvas": "Canvas size",
+        "export": "Export settings"
+      },
+      "project": {
+        "import": "Import project",
+        "export": "Export project",
+        "hint": "Project files include layout, parameters, and original image assets."
+      },
+      "upload": {
+        "selectPhotos": "Select photos",
+        "uploadedCount": "{count} photos uploaded"
+      },
+      "canvas": {
+        "preset": "Preset"
+      },
+      "export": {
+        "resolution": "Resolution",
+        "format": "Format",
+        "quality": "Quality",
+        "keepAspect": "Export with the same canvas aspect ratio",
+        "progress": "{label} ({done}/{total})"
+      }
+    },
+    "right": {
+      "title": "Photo properties",
+      "selectPhotoHint": "Select a photo on the canvas",
+      "currentSelection": "Current selection",
+      "file": "File: {name}",
+      "original": "Original: {width} × {height}",
+      "userCrop": "User crop: {width} × {height}",
+      "displayCrop": "Display crop: {width} × {height}",
+      "layer": "Layer: {zIndex}",
+      "section": {
+        "thumbnail": "Original preview",
+        "crop": "Crop",
+        "transform": "Transform",
+        "position": "Position",
+        "layer": "Layer",
+        "filters": "Color & filter",
+        "replace": "Replace image",
+        "history": "History"
+      },
+      "face": {
+        "detecting": "Detecting faces...",
+        "detected": "Detected {count} face areas",
+        "notDetected": "No face areas detected",
+        "previewHint": "Displayed with preserved aspect ratio (not affected by crop/filter)",
+        "serviceUnavailable": "Face detection is unavailable (MediaPipe assets missing and native FaceDetector unsupported). Run pnpm prepare:mediapipe and try again.",
+        "photoNoFace": "No faces detected in this photo. Make sure the original image contains clear faces."
+      },
+      "crop": {
+        "currentArea": "Current crop area: {width} × {height}",
+        "cropPhoto": "Crop photo",
+        "zoom": "Zoom"
+      },
+      "transform": {
+        "scale": "Scale",
+        "rotation": "Rotation"
+      },
+      "position": {
+        "allowMove": "Allow moving photos"
+      },
+      "layerActions": {
+        "bringToFront": "Bring to front",
+        "sendToBack": "Send to back"
+      },
+      "filters": {
+        "brightness": "Brightness",
+        "contrast": "Contrast",
+        "saturation": "Saturation",
+        "preset": "Filter"
+      },
+      "replace": {
+        "hint": "Only replace image content, keeping current position and display size.",
+        "selectNew": "Select new image"
+      },
+      "history": {
+        "undo": "Undo",
+        "redo": "Redo",
+        "clear": "Clear",
+        "empty": "No history",
+        "latestAt": "Latest · {time}"
+      },
+      "deletePhoto": "Delete photo"
+    }
+  },
+  "canvas": {
+    "preview": "Canvas preview",
+    "photoCount": "{count} photos",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "fitToWindow": "Fit to window",
+    "fit": "Fit",
+    "resetView": "Reset view",
+    "reset": "Reset",
+    "cropModeHint": "Crop mode - drag image content to adjust crop, use slider to zoom",
+    "aspectUnknown": "—"
+  },
+  "dropZone": {
+    "title": "Drag photos here",
+    "hint": "Or click to select files"
+  },
+  "photoList": {
+    "remove": "Delete"
+  },
+  "toast": {
+    "import": {
+      "invalidFiles": "Please select valid image files ({types})",
+      "importing": "Importing {count} photos...",
+      "maxPhotos": "Up to 150 photos are supported. Only the first 150 were selected.",
+      "partialSuccess": "Imported {added}, failed {failed} (you can retry failed files)",
+      "success": "Imported {count} photos and completed auto layout",
+      "failed": "Import failed, please try again"
+    },
+    "layout": {
+      "calculating": "Calculating the best layout...",
+      "success": "Auto layout complete!",
+      "failed": "Layout failed, please try again"
+    },
+    "export": {
+      "start": "Generating high-resolution mosaic...",
+      "success": "Export successful!",
+      "failed": "Export failed: {message}",
+      "preparing": "Preparing..."
+    },
+    "project": {
+      "importing": "Importing project...",
+      "importSuccess": "Project imported successfully",
+      "importFailed": "Import failed: {message}",
+      "exporting": "Packaging project file...",
+      "exportSuccess": "Project file exported",
+      "exportFailed": "Export failed: {message}"
+    },
+    "crop": {
+      "applied": "Crop applied",
+      "cancelled": "Crop cancelled",
+      "hint": "Crop mode: drag image content to adjust crop, use slider to zoom, Enter to confirm, Esc to cancel"
+    },
+    "replace": {
+      "success": "Image replaced",
+      "failed": "Replace failed, please try again"
+    },
+    "adjustments": {
+      "applied": "Color/filter applied"
+    },
+    "history": {
+      "cleared": "History cleared"
+    },
+    "photos": {
+      "cleared": "All photos cleared"
+    }
+  },
+  "dialog": {
+    "clearPhotos": "Are you sure you want to clear all photos?",
+    "clearHistory": "Are you sure you want to clear history?",
+    "deletePhoto": "Are you sure you want to delete this photo?"
+  },
+  "history": {
+    "action": {
+      "autoLayout": "Auto layout",
+      "moveX": "Move (X)",
+      "moveY": "Move (Y)",
+      "transform": "Transform",
+      "scale": "Scale",
+      "rotation": "Rotate",
+      "adjustments": "Color/Filter",
+      "drag": "Drag",
+      "crop": "Crop",
+      "clearAll": "Clear all photos",
+      "replacePhoto": "Replace photo: {before} → {after}",
+      "deletePhoto": "Delete photo: {name}",
+      "bringToFront": "Bring to front",
+      "sendToBack": "Send to back"
+    }
+  },
+  "filterPreset": {
+    "none": "None",
+    "blackWhite": "Black & White",
+    "sepia": "Sepia",
+    "vintage": "Vintage"
+  },
+  "preset": {
+    "40x50": "40cm × 50cm",
+    "40x60": "40cm × 60cm",
+    "50x70": "50cm × 70cm",
+    "60x80": "60cm × 80cm",
+    "60x90": "60cm × 90cm",
+    "50x40": "50cm × 40cm",
+    "60x40": "60cm × 40cm",
+    "70x50": "70cm × 50cm",
+    "80x60": "80cm × 60cm",
+    "90x60": "90cm × 60cm",
+    "100x70": "100cm × 70cm",
+    "100x80": "100cm × 80cm",
+    "custom": "Custom size"
+  },
+  "export": {
+    "resolution": {
+      "original": "Original canvas size",
+      "1080p": "1080p (long edge 1920)",
+      "2k": "2K (long edge 2560)",
+      "4k": "4K (long edge 3840)"
+    },
+    "format": {
+      "png": "PNG (lossless)",
+      "jpeg": "JPEG",
+      "webp": "WebP"
+    },
+    "progress": {
+      "preparing": "Preparing export...",
+      "encoding": "Encoding..."
+    },
+    "errors": {
+      "dimensionTooLarge": "Export size exceeds browser limits ({width}×{height}). Reduce resolution or canvas size.",
+      "pixelsTooLarge": "Export pixel count is too large ({width}×{height}). Reduce resolution or canvas size.",
+      "contextUnavailable": "Unable to create Canvas 2D context (browser/memory limit).",
+      "cancelled": "Export cancelled",
+      "incompletePhoto": "Incomplete photo data: {name}",
+      "invalidCrop": "Invalid crop data: {name}",
+      "webpUnsupported": "Your browser may not support WebP export. Please use PNG/JPEG."
+    }
+  },
+  "project": {
+    "errors": {
+      "missingProjectJson": "Project archive is missing project.json",
+      "unsupportedVersion": "Unsupported project file version",
+      "missingAsset": "Missing image asset: {name} (assetId={assetId})"
+    }
+  },
+  "vision": {
+    "errors": {
+      "workerProcessFailed": "Vision worker processing failed",
+      "workerCrashed": "Vision worker crashed",
+      "disabled": "Vision mode is not enabled",
+      "initFailed": "Vision is unavailable (initialization failed)"
+    }
+  }
+}

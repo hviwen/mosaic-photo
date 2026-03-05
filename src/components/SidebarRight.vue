@@ -2,25 +2,46 @@
   <div class="h-100 d-flex flex-column">
     <v-toolbar density="compact" flat>
       <v-toolbar-title v-if="!ui.rightSidebarCollapsed"
-        >照片属性</v-toolbar-title
+        >{{ t('sidebar.right.title') }}</v-toolbar-title
       >
       <v-spacer />
       <v-btn
         icon
         variant="text"
-        :title="ui.rightSidebarCollapsed ? '展开' : '折叠'"
+        :title="ui.rightSidebarCollapsed ? t('common.expand') : t('common.collapse')"
         @click="ui.toggleRightSidebar()">
         <v-icon
           :icon="
             ui.rightSidebarCollapsed ? 'mdi-chevron-left' : 'mdi-chevron-right'
           " />
       </v-btn>
+      <v-menu location="bottom end">
+        <template #activator="{ props }">
+          <v-btn
+            icon
+            variant="text"
+            :title="t('common.language')"
+            v-bind="props">
+            <v-icon icon="mdi-translate" />
+          </v-btn>
+        </template>
+        <v-list density="compact">
+          <v-list-item
+            v-for="item in localeItems"
+            :key="item.value"
+            :title="item.title"
+            :active="ui.locale === item.value"
+            @click="changeLocale(item.value)" />
+        </v-list>
+      </v-menu>
 
       <v-btn
         icon
         variant="text"
         :title="
-          themeStore.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'
+          themeStore.theme === 'dark'
+            ? t('common.theme.switchToLight')
+            : t('common.theme.switchToDark')
         "
         @click="themeStore.toggleTheme()">
         <v-icon
@@ -36,14 +57,14 @@
     <div
       v-if="ui.rightSidebarCollapsed"
       class="py-3 px-2 flex-1-1 d-flex flex-column align-center">
-      <v-btn icon variant="text" title="照片属性" @click="expandRightSidebar()">
+      <v-btn icon variant="text" :title="t('sidebar.right.title')" @click="expandRightSidebar()">
         <v-icon icon="mdi-tune-variant" />
       </v-btn>
 
       <v-btn
         icon
         variant="text"
-        :title="selectedPhoto ? '删除照片' : '在画布上选择一张照片'"
+        :title="selectedPhoto ? t('sidebar.right.deletePhoto') : t('sidebar.right.selectPhotoHint')"
         :disabled="!selectedPhoto"
         @click="deletePhoto">
         <v-icon icon="mdi-delete" />
@@ -58,7 +79,7 @@
         type="info"
         variant="tonal"
         density="compact">
-        在画布上选择一张照片
+        {{ t('sidebar.right.selectPhotoHint') }}
       </v-alert>
 
       <div v-else>
@@ -69,12 +90,11 @@
             background: rgba(var(--v-theme-surface-variant), 0.08);
             border-radius: 8px;
           ">
-          <div class="text-subtitle-2 mb-1">当前选中</div>
+          <div class="text-subtitle-2 mb-1">{{ t('sidebar.right.currentSelection') }}</div>
           <div class="d-flex flex-column" style="gap: 0.15rem">
-            <div class="text-caption">文件：{{ selectedPhoto.name }}</div>
+            <div class="text-caption">{{ t('sidebar.right.file', { name: selectedPhoto.name }) }}</div>
             <div class="text-caption">
-              原图：{{ selectedPhotoInfo?.original.width }} ×
-              {{ selectedPhotoInfo?.original.height }}
+              {{ t('sidebar.right.original', { width: selectedPhotoInfo?.original.width, height: selectedPhotoInfo?.original.height }) }}
             </div>
             <AspectBar
               v-if="selectedPhotoInfo"
@@ -83,8 +103,7 @@
               :aspect="selectedPhotoInfo.original.aspect"
               :active="!!selectedPhoto" />
             <div class="text-caption">
-              用户裁剪：{{ selectedPhotoInfo?.userCrop.width }} ×
-              {{ selectedPhotoInfo?.userCrop.height }}
+              {{ t('sidebar.right.userCrop', { width: selectedPhotoInfo?.userCrop.width, height: selectedPhotoInfo?.userCrop.height }) }}
             </div>
             <AspectBar
               v-if="selectedPhotoInfo"
@@ -93,8 +112,7 @@
               :aspect="selectedPhotoInfo.userCrop.aspect"
               :active="!!selectedPhoto" />
             <div class="text-caption">
-              显示裁剪：{{ selectedPhotoInfo?.displayCrop.width }} ×
-              {{ selectedPhotoInfo?.displayCrop.height }}
+              {{ t('sidebar.right.displayCrop', { width: selectedPhotoInfo?.displayCrop.width, height: selectedPhotoInfo?.displayCrop.height }) }}
             </div>
             <AspectBar
               v-if="selectedPhotoInfo"
@@ -102,7 +120,7 @@
               :height="selectedPhotoInfo.displayCrop.height"
               :aspect="selectedPhotoInfo.displayCrop.aspect"
               :active="!!selectedPhoto" />
-            <div class="text-caption">图层：{{ selectedPhoto.zIndex }}</div>
+            <div class="text-caption">{{ t('sidebar.right.layer', { zIndex: selectedPhoto.zIndex }) }}</div>
           </div>
         </div>
 
@@ -114,7 +132,7 @@
           <!-- 原图缩略（默认展开） -->
           <v-expansion-panel value="thumbnail">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              原图缩略
+              {{ t('sidebar.right.section.thumbnail') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <div class="origin-preview rounded">
@@ -123,19 +141,19 @@
                   class="origin-preview__canvas" />
               </div>
               <div v-if="isFaceDetecting" class="text-caption mt-2">
-                人脸检测中...
+                {{ t('sidebar.right.face.detecting') }}
               </div>
               <div v-else-if="faceBoxes.length > 0" class="text-caption mt-2">
-                已检测到 {{ faceBoxes.length }} 个人脸区域
+                {{ t('sidebar.right.face.detected', { count: faceBoxes.length }) }}
               </div>
-              <div v-else class="text-caption mt-2">未检测到人脸区域</div>
+              <div v-else class="text-caption mt-2">{{ t('sidebar.right.face.notDetected') }}</div>
               <div
                 v-if="!isFaceDetecting && faceBoxes.length === 0"
                 class="text-caption mt-1">
                 {{ faceDetectHintText }}
               </div>
               <div class="text-caption mt-2">
-                保持宽高比等比缩放展示（不受裁剪/滤镜影响）
+                {{ t('sidebar.right.face.previewHint') }}
               </div>
             </v-expansion-panel-text>
           </v-expansion-panel>
@@ -143,12 +161,11 @@
           <!-- 裁剪 -->
           <v-expansion-panel value="crop">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              裁剪
+              {{ t('sidebar.right.section.crop') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <div class="text-caption mb-3">
-                当前裁剪区域: {{ Math.round(selectedPhoto.crop.width) }} ×
-                {{ Math.round(selectedPhoto.crop.height) }}
+                {{ t('sidebar.right.crop.currentArea', { width: Math.round(selectedPhoto.crop.width), height: Math.round(selectedPhoto.crop.height) }) }}
               </div>
               <v-btn
                 v-if="!isSelectedInCropMode"
@@ -156,7 +173,7 @@
                 variant="outlined"
                 prepend-icon="mdi-crop"
                 @click="enterCropMode">
-                裁剪照片
+                {{ t('sidebar.right.crop.cropPhoto') }}
               </v-btn>
               <div v-else class="d-flex flex-column mt-2" style="gap: 0.5rem">
                 <v-btn
@@ -165,7 +182,7 @@
                   variant="tonal"
                   prepend-icon="mdi-check"
                   @click="confirmCrop">
-                  确认
+                  {{ t('common.confirm') }}
                 </v-btn>
                 <v-btn
                   block
@@ -173,7 +190,7 @@
                   variant="outlined"
                   prepend-icon="mdi-close"
                   @click="cancelCrop">
-                  取消
+                  {{ t('common.cancel') }}
                 </v-btn>
               </div>
               <div
@@ -181,7 +198,7 @@
                 class="d-flex flex-column mt-2"
                 style="gap: 0.5rem">
                 <div class="d-flex align-center justify-space-between">
-                  <div class="text-caption">缩放</div>
+                  <div class="text-caption">{{ t('sidebar.right.crop.zoom') }}</div>
                   <div class="text-caption">{{ cropZoomPercent }}%</div>
                 </div>
                 <v-slider
@@ -198,11 +215,11 @@
           <!-- 变换 -->
           <v-expansion-panel value="transform">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              变换
+              {{ t('sidebar.right.section.transform') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <div class="d-flex align-center justify-space-between">
-                <div class="text-caption">缩放</div>
+                <div class="text-caption">{{ t('sidebar.right.transform.scale') }}</div>
                 <div class="text-caption">{{ scalePercent }}%</div>
               </div>
               <v-slider
@@ -214,7 +231,7 @@
                 @update:model-value="updateScale" />
 
               <div class="d-flex align-center justify-space-between mt-3">
-                <div class="text-caption">旋转</div>
+                <div class="text-caption">{{ t('sidebar.right.transform.rotation') }}</div>
                 <div class="text-caption">{{ rotationDeg }}°</div>
               </div>
               <v-slider
@@ -230,12 +247,12 @@
           <!-- 位置 -->
           <v-expansion-panel value="position">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              位置
+              {{ t('sidebar.right.section.position') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <v-switch
                 v-model="store.allowPhotoMove"
-                label="允许移动照片"
+                :label="t('sidebar.right.position.allowMove')"
                 density="compact"
                 hide-details
                 class="mb-2" />
@@ -243,13 +260,13 @@
                 :model-value="Math.round(selectedPhoto.cx)"
                 type="number"
                 density="compact"
-                label="X"
+                :label="t('common.axisX')"
                 @update:model-value="v => updatePosition('cx', v)" />
               <v-text-field
                 :model-value="Math.round(selectedPhoto.cy)"
                 type="number"
                 density="compact"
-                label="Y"
+                :label="t('common.axisY')"
                 @update:model-value="v => updatePosition('cy', v)" />
             </v-expansion-panel-text>
           </v-expansion-panel>
@@ -257,7 +274,7 @@
           <!-- 图层 -->
           <v-expansion-panel value="layer">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              图层
+              {{ t('sidebar.right.section.layer') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <div class="d-flex flex-wrap" style="gap: 0.5rem">
@@ -266,14 +283,14 @@
                   variant="outlined"
                   @click="bringToFront"
                   prepend-icon="mdi-arrow-up">
-                  置顶
+                  {{ t('sidebar.right.layerActions.bringToFront') }}
                 </v-btn>
                 <v-btn
                   size="small"
                   variant="outlined"
                   @click="sendToBack"
                   prepend-icon="mdi-arrow-down">
-                  置底
+                  {{ t('sidebar.right.layerActions.sendToBack') }}
                 </v-btn>
               </div>
             </v-expansion-panel-text>
@@ -282,11 +299,11 @@
           <!-- 调色与滤镜 -->
           <v-expansion-panel value="filters">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              调色与滤镜
+              {{ t('sidebar.right.section.filters') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <div class="d-flex align-center justify-space-between">
-                <div class="text-caption">亮度</div>
+                <div class="text-caption">{{ t('sidebar.right.filters.brightness') }}</div>
                 <div class="text-caption">
                   {{ Math.round((adjustDraft.brightness ?? 1) * 100) }}%
                 </div>
@@ -300,7 +317,7 @@
                 @update:model-value="v => updateAdjustments('brightness', v)" />
 
               <div class="d-flex align-center justify-space-between mt-3">
-                <div class="text-caption">对比度</div>
+                <div class="text-caption">{{ t('sidebar.right.filters.contrast') }}</div>
                 <div class="text-caption">
                   {{ Math.round((adjustDraft.contrast ?? 1) * 100) }}%
                 </div>
@@ -314,7 +331,7 @@
                 @update:model-value="v => updateAdjustments('contrast', v)" />
 
               <div class="d-flex align-center justify-space-between mt-3">
-                <div class="text-caption">饱和度</div>
+                <div class="text-caption">{{ t('sidebar.right.filters.saturation') }}</div>
                 <div class="text-caption">
                   {{ Math.round((adjustDraft.saturation ?? 1) * 100) }}%
                 </div>
@@ -334,7 +351,7 @@
                 item-title="label"
                 item-value="value"
                 density="compact"
-                label="滤镜"
+                :label="t('sidebar.right.filters.preset')"
                 @update:model-value="v => updateAdjustments('preset', v)" />
 
               <div class="d-flex flex-wrap mt-3" style="gap: 0.5rem">
@@ -344,14 +361,14 @@
                   variant="tonal"
                   @click="applyAdjustments"
                   :disabled="!hasAdjustmentChanges">
-                  应用
+                  {{ t('common.apply') }}
                 </v-btn>
                 <v-btn
                   size="small"
                   variant="outlined"
                   @click="resetAdjustments"
                   :disabled="!hasAdjustmentChanges">
-                  重置
+                  {{ t('common.reset') }}
                 </v-btn>
               </div>
             </v-expansion-panel-text>
@@ -360,7 +377,7 @@
           <!-- 替换图片 -->
           <v-expansion-panel value="replace">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              替换图片
+              {{ t('sidebar.right.section.replace') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <v-alert
@@ -368,7 +385,7 @@
                 variant="tonal"
                 density="compact"
                 class="mb-3">
-                仅替换图片内容，保持当前位置与显示尺寸不变。
+                {{ t('sidebar.right.replace.hint') }}
               </v-alert>
               <input
                 ref="replaceInputEl"
@@ -382,7 +399,7 @@
                 prepend-icon="mdi-image-edit"
                 :loading="isReplacing"
                 @click="openReplacePicker">
-                选择新图片
+                {{ t('sidebar.right.replace.selectNew') }}
               </v-btn>
             </v-expansion-panel-text>
           </v-expansion-panel>
@@ -390,7 +407,7 @@
           <!-- 操作历史 -->
           <v-expansion-panel value="history">
             <v-expansion-panel-title class="text-subtitle-2 py-2">
-              操作历史
+              {{ t('sidebar.right.section.history') }}
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <div class="d-flex flex-wrap" style="gap: 0.5rem">
@@ -400,7 +417,7 @@
                   :disabled="!store.canUndo"
                   prepend-icon="mdi-undo"
                   @click="store.undo()">
-                  撤销
+                  {{ t('sidebar.right.history.undo') }}
                 </v-btn>
                 <v-btn
                   size="small"
@@ -408,7 +425,7 @@
                   :disabled="!store.canRedo"
                   prepend-icon="mdi-redo"
                   @click="store.redo()">
-                  重做
+                  {{ t('sidebar.right.history.redo') }}
                 </v-btn>
                 <v-spacer />
                 <v-btn
@@ -417,7 +434,7 @@
                   :disabled="store.history.length === 0"
                   prepend-icon="mdi-delete-sweep"
                   @click="clearHistory">
-                  清空
+                  {{ t('sidebar.right.history.clear') }}
                 </v-btn>
               </div>
 
@@ -428,7 +445,7 @@
                 type="info"
                 variant="tonal"
                 density="compact">
-                暂无操作记录
+                {{ t('sidebar.right.history.empty') }}
               </v-alert>
 
               <v-list v-else density="compact">
@@ -449,7 +466,7 @@
           class="mt-4"
           @click="deletePhoto"
           prepend-icon="mdi-delete">
-          删除照片
+          {{ t('sidebar.right.deletePhoto') }}
         </v-btn>
       </div>
     </div>
@@ -458,10 +475,12 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { useMosaicStore } from "@/stores/mosaic";
 import { useToastStore } from "@/stores/toast";
 import { useThemeStore } from "@/stores/theme";
 import { useUiStore } from "@/stores/ui";
+import type { AppLocale } from "@/locales";
 import { radiansToDegrees, degreesToRadians, clamp } from "@/utils/math";
 import {
   getSmartDetections,
@@ -484,6 +503,7 @@ const store = useMosaicStore();
 const toast = useToastStore();
 const themeStore = useThemeStore();
 const ui = useUiStore();
+const { t, d } = useI18n();
 const originPreviewCanvasEl = ref<HTMLCanvasElement | null>(null);
 const originPreviewRaf = ref<number | null>(null);
 const originPreviewResizeObserver = ref<ResizeObserver | null>(null);
@@ -524,9 +544,9 @@ const isFaceDetectorSupported = computed(() => {
 const faceDetectHintText = computed(() => {
   if (faceBoxes.value.length > 0 || isFaceDetecting.value) return "";
   if (!isFaceDetectorSupported.value) {
-    return "人脸检测服务未就绪（MediaPipe 资源缺失且浏览器不支持原生 FaceDetector API）。请执行 pnpm prepare:mediapipe 准备资源后重试。";
+    return t("sidebar.right.face.serviceUnavailable");
   }
-  return "该照片未检测到人脸，请确保原图中包含清晰人脸。";
+  return t("sidebar.right.face.photoNoFace");
 });
 
 const scalePercent = computed(() =>
@@ -543,13 +563,19 @@ const selectedPhotoInfo = computed(() =>
 );
 
 const historyItems = computed(() => store.history.slice(-12).reverse());
+const localeItems = computed(() =>
+  (["zh-CN", "en-US", "ja-JP", "ko-KR"] as const).map((locale) => ({
+    value: locale,
+    title: t(`locale.${locale}` as any),
+  }))
+);
 
-const filterOptions: Array<{ label: string; value: FilterPreset }> = [
-  { label: "无", value: "none" },
-  { label: "黑白", value: "blackWhite" },
-  { label: "棕褐色", value: "sepia" },
-  { label: "复古", value: "vintage" },
-];
+const filterOptions = computed<Array<{ label: string; value: FilterPreset }>>(() => [
+  { label: t("filterPreset.none"), value: "none" },
+  { label: t("filterPreset.blackWhite"), value: "blackWhite" },
+  { label: t("filterPreset.sepia"), value: "sepia" },
+  { label: t("filterPreset.vintage"), value: "vintage" },
+]);
 
 const replaceInputEl = ref<HTMLInputElement | null>(null);
 const isReplacing = ref(false);
@@ -636,7 +662,7 @@ function updatePosition(axis: "cx" | "cy", v: unknown) {
     store.updatePhotoWithHistory(
       selectedPhoto.value.id,
       { [axis]: value },
-      axis === "cx" ? "移动（X）" : "移动（Y）",
+      axis === "cx" ? t("history.action.moveX") : t("history.action.moveY"),
     );
   }
 }
@@ -692,7 +718,7 @@ function enterCropMode() {
     expandedPanels.value = [...expandedPanels.value, "crop"];
   }
   toast.info(
-    "裁剪模式：拖动图片内容调整裁剪，使用滑条缩放，Enter 确认，Esc 取消",
+    t("toast.crop.hint"),
   );
 }
 
@@ -745,7 +771,11 @@ function scheduleTransformCommit() {
     if (!changedScale && !changedRot) return;
 
     const label =
-      changedScale && changedRot ? "变换" : changedScale ? "缩放" : "旋转";
+      changedScale && changedRot
+        ? t("history.action.transform")
+        : changedScale
+          ? t("history.action.scale")
+          : t("history.action.rotation");
     store.pushPhotoHistoryFromPartials(
       selectedPhoto.value.id,
       label,
@@ -770,10 +800,10 @@ async function handleReplaceFileChange(e: Event) {
   isReplacing.value = true;
   try {
     await store.replacePhotoFromFile(selectedPhoto.value.id, file);
-    toast.success("图片已替换");
+    toast.success(t("toast.replace.success"));
   } catch (err) {
     console.error("Replace failed:", err);
-    toast.error("替换失败，请重试");
+    toast.error(t("toast.replace.failed"));
   } finally {
     isReplacing.value = false;
   }
@@ -803,12 +833,12 @@ function applyAdjustments() {
   const after = adjustDraft.value;
   store.pushPhotoHistoryFromPartials(
     selectedPhoto.value.id,
-    "调色/滤镜",
+    t("history.action.adjustments"),
     { adjustments: before },
     { adjustments: after },
   );
   adjustStart.value = { ...after };
-  toast.success("已应用调色/滤镜");
+  toast.success(t("toast.adjustments.applied"));
 }
 
 function resetAdjustments() {
@@ -818,16 +848,20 @@ function resetAdjustments() {
 }
 
 function clearHistory() {
-  if (confirm("确定要清空操作历史吗？")) {
+  if (confirm(t("dialog.clearHistory"))) {
     store.clearHistory();
-    toast.info("已清空操作历史");
+    toast.info(t("toast.history.cleared"));
   }
 }
 
 function formatHistorySubtitle(item: { at: number }, idx: number) {
-  const time = new Date(item.at).toLocaleTimeString();
-  if (idx === 0) return `最新 · ${time}`;
+  const time = d(item.at, "timeShort");
+  if (idx === 0) return t("sidebar.right.history.latestAt", { time });
   return time;
+}
+
+function changeLocale(locale: AppLocale) {
+  void ui.setLocale(locale);
 }
 
 watch(
@@ -936,10 +970,10 @@ function drawOriginPreview() {
 
 function deletePhoto() {
   if (!selectedPhoto.value) return;
-  if (confirm("确定要删除这张照片吗？")) {
+  if (confirm(t("dialog.deletePhoto"))) {
     store.removePhotoWithHistory(
       selectedPhoto.value.id,
-      `删除照片：${selectedPhoto.value.name}`,
+      t("history.action.deletePhoto", { name: selectedPhoto.value.name }),
     );
   }
 }

@@ -2,14 +2,14 @@
   <div class="h-100 d-flex flex-column">
     <v-toolbar density="compact" flat>
       <v-avatar size="32" class="mr-2">
-        <v-img src="/assets/logo.svg" alt="MosaicPhoto" />
+        <v-img src="/assets/logo.svg" :alt="t('common.appName')" />
       </v-avatar>
-      <v-toolbar-title v-if="!ui.leftSidebarCollapsed">MosaicPhoto</v-toolbar-title>
+      <v-toolbar-title v-if="!ui.leftSidebarCollapsed">{{ t('common.appName') }}</v-toolbar-title>
       <v-spacer />
       <v-btn
         icon
         variant="text"
-        :title="ui.leftSidebarCollapsed ? '展开' : '折叠'"
+        :title="ui.leftSidebarCollapsed ? t('common.expand') : t('common.collapse')"
         @click="ui.toggleLeftSidebar()"
       >
         <v-icon :icon="ui.leftSidebarCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left'" />
@@ -21,7 +21,7 @@
       <v-btn
         icon
         variant="text"
-        title="上传照片"
+        :title="t('sidebar.left.uploadPhotos')"
         @click="expandLeftSidebar()"
       >
         <v-icon icon="mdi-image-multiple" />
@@ -29,7 +29,7 @@
       <v-btn
         icon
         variant="text"
-        title="画布尺寸"
+        :title="t('sidebar.left.canvasSize')"
         @click="expandLeftSidebar()"
       >
         <v-icon icon="mdi-aspect-ratio" />
@@ -37,7 +37,7 @@
       <v-btn
         icon
         variant="text"
-        title="自动排版"
+        :title="t('sidebar.left.autoLayout')"
         :disabled="store.photoCount === 0"
         @click="expandLeftSidebar()"
       >
@@ -46,7 +46,7 @@
       <v-btn
         icon
         variant="text"
-        title="导出拼图"
+        :title="t('sidebar.left.exportMosaic')"
         :disabled="store.photoCount === 0"
         @click="expandLeftSidebar()"
       >
@@ -58,7 +58,7 @@
       <v-btn
         icon
         variant="text"
-        title="清空"
+        :title="t('common.clear')"
         :disabled="store.photoCount === 0"
         @click="clearAll"
       >
@@ -68,7 +68,7 @@
 
     <div v-else class="pa-4 flex-1-1 overflow-y-auto">
       <v-card variant="tonal" class="mb-4">
-        <v-card-title class="text-subtitle-2">工程</v-card-title>
+        <v-card-title class="text-subtitle-2">{{ t('sidebar.left.section.project') }}</v-card-title>
         <v-card-text>
           <input
             ref="projectInputEl"
@@ -85,7 +85,7 @@
               prepend-icon="mdi-import"
               @click="openProjectPicker"
             >
-              导入工程
+              {{ t('sidebar.left.project.import') }}
             </v-btn>
             <v-btn
               size="small"
@@ -94,22 +94,22 @@
               :disabled="store.photoCount === 0"
               @click="handleExportProject"
             >
-              导出工程
+              {{ t('sidebar.left.project.export') }}
             </v-btn>
           </div>
 
-          <div class="hint mt-2">工程文件包含布局、参数与原始图片资源。</div>
+          <div class="hint mt-2">{{ t('sidebar.left.project.hint') }}</div>
         </v-card-text>
       </v-card>
 
       <v-card variant="tonal" class="mb-4">
-        <v-card-title class="text-subtitle-2">上传照片</v-card-title>
+        <v-card-title class="text-subtitle-2">{{ t('sidebar.left.section.upload') }}</v-card-title>
         <v-card-text>
           <v-file-input
             v-model="selectedFiles"
             multiple
             accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.HEIC,.heif,.HEIF"
-            label="选择照片"
+            :label="t('sidebar.left.upload.selectPhotos')"
             prepend-icon="mdi-image-multiple"
             chips
             show-size
@@ -125,8 +125,8 @@
           />
 
           <div v-if="store.photoCount > 0" class="photo-list-header">
-            <span class="hint">已上传 {{ store.photoCount }} 张照片</span>
-            <v-btn size="small" variant="text" @click="clearAll">清空</v-btn>
+            <span class="hint">{{ t('sidebar.left.upload.uploadedCount', { count: store.photoCount }) }}</span>
+            <v-btn size="small" variant="text" @click="clearAll">{{ t('common.clear') }}</v-btn>
           </div>
 
           <PhotoList />
@@ -134,7 +134,7 @@
       </v-card>
 
       <v-card variant="tonal" class="mb-4">
-        <v-card-title class="text-subtitle-2">画布尺寸</v-card-title>
+        <v-card-title class="text-subtitle-2">{{ t('sidebar.left.section.canvas') }}</v-card-title>
         <v-card-text>
           <v-select
             :model-value="store.currentPresetId"
@@ -142,7 +142,7 @@
             item-title="label"
             item-value="value"
             density="compact"
-            label="预设"
+            :label="t('sidebar.left.canvas.preset')"
             @update:model-value="handlePresetSelect"
           />
 
@@ -158,13 +158,13 @@
             :disabled="store.photoCount === 0"
             @click="handleArrange"
           >
-            自动排版
+            {{ t('sidebar.left.autoLayout') }}
           </v-btn>
         </v-card-text>
       </v-card>
 
       <v-card variant="tonal">
-        <v-card-title class="text-subtitle-2">导出设置</v-card-title>
+        <v-card-title class="text-subtitle-2">{{ t('sidebar.left.section.export') }}</v-card-title>
         <v-card-text>
           <v-select
             :model-value="store.exportResolution"
@@ -172,10 +172,10 @@
             item-title="label"
             item-value="value"
             density="compact"
-            label="分辨率"
+            :label="t('sidebar.left.export.resolution')"
             @update:model-value="handleResolutionSelect"
           />
-          <div class="hint mt-1">保持画布宽高比等比缩放导出</div>
+          <div class="hint mt-1">{{ t('sidebar.left.export.keepAspect') }}</div>
 
           <v-select
             class="mt-3"
@@ -184,13 +184,13 @@
             item-title="label"
             item-value="value"
             density="compact"
-            label="格式"
+            :label="t('sidebar.left.export.format')"
             @update:model-value="handleFormatSelect"
           />
 
           <div v-if="store.exportFormat !== 'png'" class="mt-3">
-            <div class="d-flex align-center justify-space-between">
-              <div class="text-caption">质量</div>
+              <div class="d-flex align-center justify-space-between">
+              <div class="text-caption">{{ t('sidebar.left.export.quality') }}</div>
               <div class="text-caption">{{ qualityPercent }}%</div>
             </div>
             <v-slider
@@ -210,7 +210,7 @@
             :disabled="store.photoCount === 0"
             @click="handleExport"
           >
-            导出拼图
+            {{ t('sidebar.left.exportMosaic') }}
           </v-btn>
 
           <v-progress-linear
@@ -225,9 +225,13 @@
             class="hint mt-2 d-flex align-center justify-space-between"
           >
             <span>
-              {{ exportProgress.label || '处理中...' }}（{{ exportProgress.done }}/{{ exportProgress.total }}）
+              {{ t('sidebar.left.export.progress', {
+                label: exportProgress.label || t('common.processing'),
+                done: exportProgress.done,
+                total: exportProgress.total
+              }) }}
             </span>
-            <v-btn size="small" variant="text" @click="cancelExport">取消</v-btn>
+            <v-btn size="small" variant="text" @click="cancelExport">{{ t('common.cancel') }}</v-btn>
           </div>
         </v-card-text>
       </v-card>
@@ -237,6 +241,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
@@ -247,6 +252,7 @@ import PhotoList from './PhotoList.vue'
 const store = useMosaicStore()
 const toast = useToastStore()
 const ui = useUiStore()
+const { t } = useI18n()
 const isArranging = ref(false)
 const isImporting = ref(false)
 const selectedFiles = ref<File[]>([])
@@ -256,20 +262,22 @@ const exportAbort = ref<AbortController | null>(null)
 
 const qualityPercent = computed(() => Math.round(store.exportQuality * 100))
 
-const presetOptions = computed(() => store.presets.map(p => ({ label: p.label, value: p.id })))
+const presetOptions = computed(() =>
+  store.presets.map(p => ({ label: t(p.label as any), value: p.id }))
+)
 
-const resolutionOptions = [
-  { label: '原始画布尺寸', value: 'original' },
-  { label: '1080p（长边 1920）', value: '1080p' },
-  { label: '2K（长边 2560）', value: '2k' },
-  { label: '4K（长边 3840）', value: '4k' },
-]
+const resolutionOptions = computed(() => [
+  { label: t('export.resolution.original'), value: 'original' },
+  { label: t('export.resolution.1080p'), value: '1080p' },
+  { label: t('export.resolution.2k'), value: '2k' },
+  { label: t('export.resolution.4k'), value: '4k' },
+])
 
-const formatOptions = [
-  { label: 'PNG（无损）', value: 'png' },
-  { label: 'JPEG', value: 'jpeg' },
-  { label: 'WebP', value: 'webp' },
-]
+const formatOptions = computed(() => [
+  { label: t('export.format.png'), value: 'png' },
+  { label: t('export.format.jpeg'), value: 'jpeg' },
+  { label: t('export.format.webp'), value: 'webp' },
+])
 
 function handlePresetSelect(v: unknown) {
   store.setPreset(String(v ?? ''))
@@ -299,11 +307,15 @@ function handleQualitySelect(v: unknown) {
 async function handleFiles(files: File[]) {
   const validFiles = files.filter(isValidImageFile)
   if (validFiles.length === 0) {
-    toast.warning('请选择有效的图片文件（JPEG、PNG、WebP、GIF、HEIC）')
+    toast.warning(
+      t('toast.import.invalidFiles', {
+        types: t('common.imageFileTypes'),
+      })
+    )
     return
   }
 
-  toast.info(`正在导入 ${validFiles.length} 张照片...`)
+  toast.info(t('toast.import.importing', { count: validFiles.length }))
   isImporting.value = true
 
   try {
@@ -312,16 +324,16 @@ async function handleFiles(files: File[]) {
     })
     if (res.truncated > 0) {
       // 统一提示文案：超过上限时仅保留前 150 张。
-      toast.warning('最多支持导入 150 张照片，已自动选择前 150 张')
+      toast.warning(t('toast.import.maxPhotos'))
     }
     if (res.failed > 0) {
-      toast.warning(`已导入 ${res.added} 张，失败 ${res.failed} 张（可尝试重新选择失败文件）`)
+      toast.warning(t('toast.import.partialSuccess', { added: res.added, failed: res.failed }))
     } else {
-      toast.success(`已导入 ${res.added} 张照片，并完成自动排版`)
+      toast.success(t('toast.import.success', { count: res.added }))
     }
   } catch (err) {
     console.error('Import failed:', err)
-    toast.error('导入失败，请重试')
+    toast.error(t('toast.import.failed'))
   }
   isImporting.value = false
   selectedFiles.value = []
@@ -342,17 +354,17 @@ async function handleArrange() {
   if (store.photoCount === 0) return
   
   isArranging.value = true
-  toast.info('正在计算最佳布局...')
+  toast.info(t('toast.layout.calculating'))
 
   // 使用 setTimeout 让 UI 更新
   await new Promise(resolve => setTimeout(resolve, 50))
 
   try {
-    await store.autoLayoutWithHistoryAsync('自动排版')
-    toast.success('自动排列完成！')
+    await store.autoLayoutWithHistoryAsync(t('history.action.autoLayout'))
+    toast.success(t('toast.layout.success'))
   } catch (err) {
     console.error('Arrange failed:', err)
-    toast.error('排列失败，请重试')
+    toast.error(t('toast.layout.failed'))
   } finally {
     isArranging.value = false
   }
@@ -364,9 +376,9 @@ async function handleExport() {
   if (store.photoCount === 0) return
   
   store.setExporting(true)
-  exportProgress.value = { done: 0, total: store.photoCount, label: '准备中...' }
+  exportProgress.value = { done: 0, total: store.photoCount, label: t('toast.export.preparing') }
   exportAbort.value = new AbortController()
-  toast.info('正在生成高清拼图...')
+  toast.info(t('toast.export.start'))
 
   try {
     const { exportMosaicWithOptions } = await import('@/composables/useExport')
@@ -377,11 +389,11 @@ async function handleExport() {
         exportProgress.value = { done: p.done, total: p.total, label: p.label }
       },
     })
-    toast.success('导出成功！')
+    toast.success(t('toast.export.success'))
   } catch (err) {
     console.error('Export failed:', err)
     const msg = err instanceof Error ? err.message : String(err)
-    toast.error(`导出失败：${msg}`)
+    toast.error(t('toast.export.failed', { message: msg }))
   } finally {
     store.setExporting(false)
     exportAbort.value = null
@@ -404,35 +416,35 @@ async function handleProjectFileChange(e: Event) {
   if (!file) return
 
   try {
-    toast.info('正在导入工程...')
+    toast.info(t('toast.project.importing'))
     const { importProjectFile } = await import('@/project/projectFile')
     await importProjectFile({ file, store })
-    toast.success('工程导入成功')
+    toast.success(t('toast.project.importSuccess'))
   } catch (err) {
     console.error('Import project failed:', err)
     const msg = err instanceof Error ? err.message : String(err)
-    toast.error(`导入失败：${msg}`)
+    toast.error(t('toast.project.importFailed', { message: msg }))
   }
 }
 
 async function handleExportProject() {
   if (store.photoCount === 0) return
   try {
-    toast.info('正在打包工程文件...')
+    toast.info(t('toast.project.exporting'))
     const { exportProjectFile } = await import('@/project/projectFile')
     await exportProjectFile({ store })
-    toast.success('工程文件已导出')
+    toast.success(t('toast.project.exportSuccess'))
   } catch (err) {
     console.error('Export project failed:', err)
     const msg = err instanceof Error ? err.message : String(err)
-    toast.error(`导出失败：${msg}`)
+    toast.error(t('toast.project.exportFailed', { message: msg }))
   }
 }
 
 function clearAll() {
-  if (confirm('确定要清空所有照片吗？')) {
-    store.clearAllPhotosWithHistory('清空所有照片')
-    toast.info('已清空所有照片')
+  if (confirm(t('dialog.clearPhotos'))) {
+    store.clearAllPhotosWithHistory(t('history.action.clearAll'))
+    toast.info(t('toast.photos.cleared'))
   }
 }
 </script>

@@ -28,6 +28,7 @@ import {
   seedSmartDetections,
 } from "@/utils/smartCrop";
 import { getVisionClient } from "@/vision/visionClient";
+import { translate } from "@/locales";
 
 type LayoutWorkerFillArrangeOptions = {
   seed?: number;
@@ -57,19 +58,19 @@ type LayoutWorkerFillArrangeResponse =
   | { id: number; ok: false; error: string };
 
 const PRESETS: CanvasPreset[] = [
-  { id: "40x50", label: "40cm × 50cm", width: 4724, height: 5906 },
-  { id: "40x60", label: "40cm × 60cm", width: 4724, height: 7087 },
-  { id: "50x70", label: "50cm × 70cm", width: 5906, height: 8268 },
-  { id: "60x80", label: "60cm × 80cm", width: 7087, height: 9449 },
-  { id: "60x90", label: "60cm × 90cm", width: 7087, height: 10630 },
-  { id: "50x40", label: "50cm × 40cm", width: 5906, height: 4724 },
-  { id: "60x40", label: "60cm × 40cm", width: 7087, height: 4724 },
-  { id: "70x50", label: "70cm × 50cm", width: 8268, height: 5906 },
-  { id: "80x60", label: "80cm × 60cm", width: 9449, height: 7087 },
-  { id: "90x60", label: "90cm × 60cm", width: 10630, height: 7087 },
-  { id: "100x70", label: "100cm × 70cm", width: 11811, height: 8268 },
-  { id: "100x80", label: "100cm × 80cm", width: 11811, height: 9449 },
-  { id: "custom", label: "自定义尺寸", width: 4000, height: 4000 },
+  { id: "40x50", label: "preset.40x50", width: 4724, height: 5906 },
+  { id: "40x60", label: "preset.40x60", width: 4724, height: 7087 },
+  { id: "50x70", label: "preset.50x70", width: 5906, height: 8268 },
+  { id: "60x80", label: "preset.60x80", width: 7087, height: 9449 },
+  { id: "60x90", label: "preset.60x90", width: 7087, height: 10630 },
+  { id: "50x40", label: "preset.50x40", width: 5906, height: 4724 },
+  { id: "60x40", label: "preset.60x40", width: 7087, height: 4724 },
+  { id: "70x50", label: "preset.70x50", width: 8268, height: 5906 },
+  { id: "80x60", label: "preset.80x60", width: 9449, height: 7087 },
+  { id: "90x60", label: "preset.90x60", width: 10630, height: 7087 },
+  { id: "100x70", label: "preset.100x70", width: 11811, height: 8268 },
+  { id: "100x80", label: "preset.100x80", width: 11811, height: 9449 },
+  { id: "custom", label: "preset.custom", width: 4000, height: 4000 },
 ];
 
 const MAX_IMPORT_PHOTO_COUNT = 150;
@@ -240,7 +241,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       else pending.reject(new Error(msg.error));
     };
     w.onerror = () => {
-      rejectAllLayoutWorkerPending(new Error("布局 Worker 发生错误"));
+      rejectAllLayoutWorkerPending(new Error(translate("vision.errors.workerCrashed")));
       layoutWorker = null;
       try {
         w.terminate();
@@ -687,7 +688,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
     removePhotoInternal(id, { revokeUrl: true });
   }
 
-  function removePhotoWithHistory(id: string, label: string = "删除照片") {
+  function removePhotoWithHistory(
+    id: string,
+    label: string = translate("sidebar.right.deletePhoto"),
+  ) {
     const index = photos.value.findIndex(p => p.id === id);
     const photo = photos.value.find(p => p.id === id);
     if (!photo || index === -1) return;
@@ -828,7 +832,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     }
   }
 
-  function autoLayoutWithHistory(label: string = "自动排版") {
+  function autoLayoutWithHistory(label: string = translate("history.action.autoLayout")) {
     if (photos.value.length === 0) return;
     const before = snapshotCanvas();
     autoLayout();
@@ -843,7 +847,9 @@ export const useMosaicStore = defineStore("mosaic", () => {
     });
   }
 
-  async function autoLayoutWithHistoryAsync(label: string = "自动排版") {
+  async function autoLayoutWithHistoryAsync(
+    label: string = translate("history.action.autoLayout"),
+  ) {
     if (photos.value.length === 0) return;
 
     const before = snapshotCanvas();
@@ -875,7 +881,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     });
   }
 
-  function applyCrop(id: string, crop: CropRect, label: string = "裁剪") {
+  function applyCrop(id: string, crop: CropRect, label: string = translate("history.action.crop")) {
     const photo = photos.value.find(p => p.id === id);
     if (!photo) return;
 
@@ -916,7 +922,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     id: string,
     crop: CropRect,
     compensatedScale?: number,
-    label: string = "裁剪",
+    label: string = translate("history.action.crop"),
   ) {
     const photo = photos.value.find(p => p.id === id);
     if (!photo) return;
@@ -1250,7 +1256,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
     pushHistory({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       at: Date.now(),
-      label: `替换照片：${before.name} → ${after.name}`,
+      label: translate("history.action.replacePhoto", {
+        before: before.name,
+        after: after.name,
+      }),
       kind: "photoFull",
       photoId: id,
       before,
@@ -1330,7 +1339,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     pushHistory({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       at: Date.now(),
-      label: "置顶",
+      label: translate("history.action.bringToFront"),
       kind: "photo",
       photoId: id,
       before,
@@ -1347,7 +1356,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     pushHistory({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       at: Date.now(),
-      label: "置底",
+      label: translate("history.action.sendToBack"),
       kind: "photo",
       photoId: id,
       before,
@@ -1484,7 +1493,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     clearAllPhotosInternal({ revokeUrls: true, clearHistoryStacks: true });
   }
 
-  function clearAllPhotosWithHistory(label: string = "清空所有照片") {
+  function clearAllPhotosWithHistory(label: string = translate("history.action.clearAll")) {
     if (photos.value.length === 0) return;
     const selectedBefore = selectedPhotoId.value;
     const cropModeBefore = cropModePhotoId.value;

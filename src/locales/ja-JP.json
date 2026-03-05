@@ -1,0 +1,275 @@
+{
+  "common": {
+    "appName": "MosaicPhoto",
+    "expand": "展開",
+    "collapse": "折りたたむ",
+    "cancel": "キャンセル",
+    "confirm": "確認",
+    "clear": "クリア",
+    "apply": "適用",
+    "reset": "リセット",
+    "delete": "削除",
+    "processing": "処理中...",
+    "language": "言語",
+    "axisX": "X",
+    "axisY": "Y",
+    "imageFileTypes": "JPEG、PNG、WebP、GIF、HEIC",
+    "theme": {
+      "switchToLight": "ライトテーマに切り替え",
+      "switchToDark": "ダークテーマに切り替え"
+    },
+    "noData": "データなし"
+  },
+  "locale": {
+    "zh-CN": "简体中文",
+    "en-US": "English",
+    "ja-JP": "日本語",
+    "ko-KR": "한국어"
+  },
+  "sidebar": {
+    "left": {
+      "uploadPhotos": "写真をアップロード",
+      "canvasSize": "キャンバスサイズ",
+      "autoLayout": "自動レイアウト",
+      "exportMosaic": "モザイクを書き出し",
+      "section": {
+        "project": "プロジェクト",
+        "upload": "写真アップロード",
+        "canvas": "キャンバスサイズ",
+        "export": "書き出し設定"
+      },
+      "project": {
+        "import": "プロジェクトを読み込み",
+        "export": "プロジェクトを書き出し",
+        "hint": "プロジェクトファイルにはレイアウト、設定、元画像アセットが含まれます。"
+      },
+      "upload": {
+        "selectPhotos": "写真を選択",
+        "uploadedCount": "{count} 枚の写真をアップロード済み"
+      },
+      "canvas": {
+        "preset": "プリセット"
+      },
+      "export": {
+        "resolution": "解像度",
+        "format": "形式",
+        "quality": "品質",
+        "keepAspect": "キャンバスのアスペクト比を保持して書き出し",
+        "progress": "{label}（{done}/{total}）"
+      }
+    },
+    "right": {
+      "title": "写真プロパティ",
+      "selectPhotoHint": "キャンバス上で写真を選択してください",
+      "currentSelection": "現在の選択",
+      "file": "ファイル: {name}",
+      "original": "元画像: {width} × {height}",
+      "userCrop": "ユーザー切り抜き: {width} × {height}",
+      "displayCrop": "表示切り抜き: {width} × {height}",
+      "layer": "レイヤー: {zIndex}",
+      "section": {
+        "thumbnail": "元画像プレビュー",
+        "crop": "切り抜き",
+        "transform": "変形",
+        "position": "位置",
+        "layer": "レイヤー",
+        "filters": "色調とフィルター",
+        "replace": "画像を置換",
+        "history": "操作履歴"
+      },
+      "face": {
+        "detecting": "顔を検出中...",
+        "detected": "{count} 件の顔領域を検出しました",
+        "notDetected": "顔領域は検出されませんでした",
+        "previewHint": "アスペクト比を維持して表示（切り抜き/フィルターの影響なし）",
+        "serviceUnavailable": "顔検出サービスが利用できません（MediaPipe 資産不足、かつブラウザが FaceDetector API 未対応）。pnpm prepare:mediapipe を実行してください。",
+        "photoNoFace": "この写真では顔を検出できませんでした。元画像に鮮明な顔が含まれているか確認してください。"
+      },
+      "crop": {
+        "currentArea": "現在の切り抜き範囲: {width} × {height}",
+        "cropPhoto": "写真を切り抜き",
+        "zoom": "ズーム"
+      },
+      "transform": {
+        "scale": "拡大率",
+        "rotation": "回転"
+      },
+      "position": {
+        "allowMove": "写真の移動を許可"
+      },
+      "layerActions": {
+        "bringToFront": "最前面へ",
+        "sendToBack": "最背面へ"
+      },
+      "filters": {
+        "brightness": "明るさ",
+        "contrast": "コントラスト",
+        "saturation": "彩度",
+        "preset": "フィルター"
+      },
+      "replace": {
+        "hint": "画像内容のみ置換し、位置と表示サイズは維持します。",
+        "selectNew": "新しい画像を選択"
+      },
+      "history": {
+        "undo": "元に戻す",
+        "redo": "やり直し",
+        "clear": "クリア",
+        "empty": "履歴はありません",
+        "latestAt": "最新 · {time}"
+      },
+      "deletePhoto": "写真を削除"
+    }
+  },
+  "canvas": {
+    "preview": "キャンバスプレビュー",
+    "photoCount": "{count} 枚の写真",
+    "zoomOut": "縮小",
+    "zoomIn": "拡大",
+    "fitToWindow": "ウィンドウに合わせる",
+    "fit": "合わせる",
+    "resetView": "表示をリセット",
+    "reset": "リセット",
+    "cropModeHint": "切り抜きモード - 画像をドラッグして切り抜きを調整し、スライダーでズーム",
+    "aspectUnknown": "—"
+  },
+  "dropZone": {
+    "title": "ここに写真をドラッグ",
+    "hint": "またはクリックしてファイルを選択"
+  },
+  "photoList": {
+    "remove": "削除"
+  },
+  "toast": {
+    "import": {
+      "invalidFiles": "有効な画像ファイルを選択してください（{types}）",
+      "importing": "{count} 枚の写真を読み込み中...",
+      "maxPhotos": "最大 150 枚まで対応しています。先頭 150 枚のみ選択されました。",
+      "partialSuccess": "{added} 枚を読み込み、{failed} 枚が失敗しました（失敗ファイルは再選択可能）",
+      "success": "{count} 枚の写真を読み込み、自動レイアウトを完了しました",
+      "failed": "読み込みに失敗しました。再試行してください"
+    },
+    "layout": {
+      "calculating": "最適なレイアウトを計算中...",
+      "success": "自動レイアウト完了！",
+      "failed": "レイアウトに失敗しました。再試行してください"
+    },
+    "export": {
+      "start": "高解像度モザイクを生成中...",
+      "success": "書き出し成功！",
+      "failed": "書き出し失敗: {message}",
+      "preparing": "準備中..."
+    },
+    "project": {
+      "importing": "プロジェクトを読み込み中...",
+      "importSuccess": "プロジェクトを読み込みました",
+      "importFailed": "読み込み失敗: {message}",
+      "exporting": "プロジェクトファイルを作成中...",
+      "exportSuccess": "プロジェクトファイルを出力しました",
+      "exportFailed": "書き出し失敗: {message}"
+    },
+    "crop": {
+      "applied": "切り抜きを適用しました",
+      "cancelled": "切り抜きをキャンセルしました",
+      "hint": "切り抜きモード: 画像をドラッグして調整、スライダーでズーム、Enter で確定、Esc で取消"
+    },
+    "replace": {
+      "success": "画像を置換しました",
+      "failed": "置換に失敗しました。再試行してください"
+    },
+    "adjustments": {
+      "applied": "色調/フィルターを適用しました"
+    },
+    "history": {
+      "cleared": "履歴をクリアしました"
+    },
+    "photos": {
+      "cleared": "すべての写真をクリアしました"
+    }
+  },
+  "dialog": {
+    "clearPhotos": "すべての写真をクリアしてもよろしいですか？",
+    "clearHistory": "履歴をクリアしてもよろしいですか？",
+    "deletePhoto": "この写真を削除してもよろしいですか？"
+  },
+  "history": {
+    "action": {
+      "autoLayout": "自動レイアウト",
+      "moveX": "移動 (X)",
+      "moveY": "移動 (Y)",
+      "transform": "変形",
+      "scale": "拡大縮小",
+      "rotation": "回転",
+      "adjustments": "色調/フィルター",
+      "drag": "ドラッグ",
+      "crop": "切り抜き",
+      "clearAll": "すべての写真をクリア",
+      "replacePhoto": "写真を置換: {before} → {after}",
+      "deletePhoto": "写真を削除: {name}",
+      "bringToFront": "最前面へ",
+      "sendToBack": "最背面へ"
+    }
+  },
+  "filterPreset": {
+    "none": "なし",
+    "blackWhite": "白黒",
+    "sepia": "セピア",
+    "vintage": "ヴィンテージ"
+  },
+  "preset": {
+    "40x50": "40cm × 50cm",
+    "40x60": "40cm × 60cm",
+    "50x70": "50cm × 70cm",
+    "60x80": "60cm × 80cm",
+    "60x90": "60cm × 90cm",
+    "50x40": "50cm × 40cm",
+    "60x40": "60cm × 40cm",
+    "70x50": "70cm × 50cm",
+    "80x60": "80cm × 60cm",
+    "90x60": "90cm × 60cm",
+    "100x70": "100cm × 70cm",
+    "100x80": "100cm × 80cm",
+    "custom": "カスタムサイズ"
+  },
+  "export": {
+    "resolution": {
+      "original": "元のキャンバスサイズ",
+      "1080p": "1080p（長辺 1920）",
+      "2k": "2K（長辺 2560）",
+      "4k": "4K（長辺 3840）"
+    },
+    "format": {
+      "png": "PNG（可逆）",
+      "jpeg": "JPEG",
+      "webp": "WebP"
+    },
+    "progress": {
+      "preparing": "書き出し準備中...",
+      "encoding": "エンコード中..."
+    },
+    "errors": {
+      "dimensionTooLarge": "書き出しサイズがブラウザ制限を超えています（{width}×{height}）。解像度またはキャンバスサイズを下げてください。",
+      "pixelsTooLarge": "ピクセル数が大きすぎます（{width}×{height}）。解像度またはキャンバスサイズを下げてください。",
+      "contextUnavailable": "Canvas 2D コンテキストを作成できません（ブラウザ/メモリ制限の可能性）。",
+      "cancelled": "書き出しをキャンセルしました",
+      "incompletePhoto": "写真データが不完全です: {name}",
+      "invalidCrop": "切り抜きデータが不正です: {name}",
+      "webpUnsupported": "このブラウザは WebP 書き出し非対応の可能性があります。PNG/JPEG を使用してください。"
+    }
+  },
+  "project": {
+    "errors": {
+      "missingProjectJson": "プロジェクトアーカイブに project.json がありません",
+      "unsupportedVersion": "未対応のプロジェクトファイルバージョンです",
+      "missingAsset": "画像アセットが見つかりません: {name}（assetId={assetId}）"
+    }
+  },
+  "vision": {
+    "errors": {
+      "workerProcessFailed": "Vision worker の処理に失敗しました",
+      "workerCrashed": "Vision worker でエラーが発生しました",
+      "disabled": "Vision モードは有効化されていません",
+      "initFailed": "Vision は利用できません（初期化失敗）"
+    }
+  }
+}

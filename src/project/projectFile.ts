@@ -5,6 +5,7 @@ import { getAsset, putAsset } from '@/project/assets'
 import { downloadBlob } from '@/utils/image'
 import type { PhotoEntity } from '@/types'
 import { hydratePhotosFromProject } from '@/project/applyProject'
+import { translate } from '@/locales'
 
 export interface ExportableStore {
   currentPresetId: string
@@ -76,7 +77,7 @@ export async function importProjectFile(params: {
 }): Promise<void> {
   const parsed = await parseProjectArchiveBlob(params.file)
   if (!isProjectV1(parsed.project)) {
-    throw new Error('不支持的工程文件版本')
+    throw new Error(translate('project.errors.unsupportedVersion'))
   }
 
   // Write assets to IndexedDB

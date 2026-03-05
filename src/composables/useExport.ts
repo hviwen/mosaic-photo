@@ -6,6 +6,7 @@ import type {
 import { canvasToBlob, downloadBlob } from "@/utils/image";
 import { buildCanvasFilter } from "@/utils/filters";
 import { getAssetBlob } from "@/project/assets";
+import { translate } from "@/locales";
 
 interface ExportStore {
   canvasWidth: number;
@@ -107,11 +108,13 @@ export async function exportMosaicWithOptions(
   const maxDim = 16384;
   if (outW > maxDim || outH > maxDim) {
     throw new Error(
-      `导出边长超出浏览器限制（${outW}×${outH}），请降低分辨率或缩小画布`,
+      translate("export.errors.dimensionTooLarge", { width: outW, height: outH }),
     );
   }
   if (outW * outH > maxPixels) {
-    throw new Error(`导出像素过大（${outW}×${outH}），请降低分辨率或缩小画布`);
+    throw new Error(
+      translate("export.errors.pixelsTooLarge", { width: outW, height: outH }),
+    );
   }
 
   // 创建全尺寸画布
@@ -121,7 +124,7 @@ export async function exportMosaicWithOptions(
   const ctx = canvas.getContext("2d");
 
   if (!ctx) {
-    throw new Error("无法创建 Canvas 2D 上下文（可能是浏览器/内存限制）");
+    throw new Error(translate("export.errors.contextUnavailable"));
   }
 
   // 填充白色背景 (JPEG 需要)
@@ -131,20 +134,20 @@ export async function exportMosaicWithOptions(
   }
 
   const total = sortedPhotos.length;
-  opts.onProgress?.({ done: 0, total, label: "准备导出..." });
+  opts.onProgress?.({ done: 0, total, label: translate("export.progress.preparing") });
 
   // 按 zIndex 顺序绘制所有照片
   for (let i = 0; i < sortedPhotos.length; i++) {
-    if (opts.signal?.aborted) throw new Error("已取消导出");
+    if (opts.signal?.aborted) throw new Error(translate("export.errors.cancelled"));
 
     const photo = sortedPhotos[i];
     if (!photo.image) {
-      throw new Error(`照片数据不完整：${photo.name ?? photo.id}`);
+      throw new Error(translate("export.errors.incompletePhoto", { name: photo.name ?? photo.id }));
     }
 
     const crop = photo.layoutCrop ?? photo.crop;
     if (!crop || crop.width <= 0 || crop.height <= 0) {
-      throw new Error(`裁剪数据不合法：${photo.name ?? photo.id}`);
+      throw new Error(translate("export.errors.invalidCrop", { name: photo.name ?? photo.id }));
     }
 
     opts.onProgress?.({ done: i, total, label: photo.name });
@@ -205,7 +208,7 @@ export async function exportMosaicWithOptions(
     }
   }
 
-  opts.onProgress?.({ done: total, total, label: "编码中..." });
+  opts.onProgress?.({ done: total, total, label: translate("export.progress.encoding") });
 
   // 转换为 Blob 并下载
   let blob: Blob;
@@ -213,7 +216,7 @@ export async function exportMosaicWithOptions(
     blob = await canvasToBlob(canvas, exportFormat, exportQuality);
   } catch (e) {
     if (exportFormat === "webp") {
-      throw new Error("当前浏览器可能不支持 WebP 导出，请改用 PNG/JPEG");
+      throw new Error(translate("export.errors.webpUnsupported"));
     }
     throw e;
   }

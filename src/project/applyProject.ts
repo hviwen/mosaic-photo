@@ -2,6 +2,7 @@ import type { ProjectV1 } from "@/project/schema";
 import type { PhotoEntity } from "@/types";
 import { createPhotoFromFile } from "@/utils/image";
 import { getAsset } from "@/project/assets";
+import { translate } from "@/locales";
 
 export async function hydratePhotosFromProject(params: {
   project: ProjectV1;
@@ -14,7 +15,12 @@ export async function hydratePhotosFromProject(params: {
   for (const p of project.photos) {
     const asset = await getAsset(p.assetId);
     if (!asset) {
-      throw new Error(`缺少图片资源：${p.name}（assetId=${p.assetId}）`);
+      throw new Error(
+        translate("project.errors.missingAsset", {
+          name: p.name,
+          assetId: p.assetId,
+        }),
+      );
     }
 
     const file = new File([asset.blob], asset.meta.name, {

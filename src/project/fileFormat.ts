@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import type { ProjectV1 } from '@/project/schema'
+import { translate } from '@/locales'
 
 export interface ProjectArchive {
   project: ProjectV1
@@ -29,7 +30,7 @@ export async function parseProjectArchiveBlob(blob: Blob): Promise<ProjectArchiv
 
   const projectRaw = unzipped[PROJECT_JSON_PATH]
   if (!projectRaw) {
-    throw new Error('工程文件缺少 project.json')
+    throw new Error(translate('project.errors.missingProjectJson'))
   }
   const project = JSON.parse(strFromU8(projectRaw)) as ProjectV1
 

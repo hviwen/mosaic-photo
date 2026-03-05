@@ -1,5 +1,6 @@
 import type { KeepRegion } from '@/types/vision'
 import { DEFAULT_VISION_ASSETS, type VisionAssets } from '@/vision/assets'
+import { translate } from '@/locales'
 
 type InitRequest = {
   id: number
@@ -74,13 +75,13 @@ export class VisionClient {
       if (!p) return
       this.pending.delete(msg.id)
       if ((msg as any).ok) p.resolve(msg)
-      else p.reject(new Error((msg as any).error || 'Vision worker 处理失败'))
+      else p.reject(new Error((msg as any).error || translate('vision.errors.workerProcessFailed')))
     }
     w.onerror = () => {
       this.failed = true
       for (const p of this.pending.values()) {
         try {
-          p.reject(new Error('Vision worker 发生错误'))
+          p.reject(new Error(translate('vision.errors.workerCrashed')))
         } catch {
           // ignore
         }
@@ -98,8 +99,8 @@ export class VisionClient {
   }
 
   async initOnce(): Promise<void> {
-    if (this.failed) throw new Error('Vision 已失效（初始化失败）')
-    if (resolveVisionMode() !== 'mediapipe') throw new Error('Vision 模式未启用')
+    if (this.failed) throw new Error(translate('vision.errors.initFailed'))
+    if (resolveVisionMode() !== 'mediapipe') throw new Error(translate('vision.errors.disabled'))
     if (this.initPromise) return await this.initPromise
 
     this.initPromise = (async () => {

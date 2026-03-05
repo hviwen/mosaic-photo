@@ -4,6 +4,7 @@ import App from './App.vue'
 import './styles/main.css'
 import { watch } from 'vue'
 import vuetify from '@/plugins/vuetify'
+import i18n from '@/plugins/i18n'
 import { inject } from '@vercel/analytics'
 import { injectSpeedInsights } from '@vercel/speed-insights'
 
@@ -27,7 +28,7 @@ app.use(pinia)
 // Ensure theme is applied ASAP (avoid flashing wrong theme)
 const themeStore = useThemeStore(pinia)
 themeStore.initTheme()
-useUiStore(pinia).initUi()
+await useUiStore(pinia).initUi()
 
 // Sync Vuetify theme with the existing theme store
 vuetify.theme.global.name.value = themeStore.theme
@@ -84,4 +85,5 @@ watch(
 )
 
 app.use(vuetify)
+app.use(i18n)
 app.mount('#app')

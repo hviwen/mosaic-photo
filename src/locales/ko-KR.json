@@ -1,0 +1,275 @@
+{
+  "common": {
+    "appName": "MosaicPhoto",
+    "expand": "펼치기",
+    "collapse": "접기",
+    "cancel": "취소",
+    "confirm": "확인",
+    "clear": "비우기",
+    "apply": "적용",
+    "reset": "초기화",
+    "delete": "삭제",
+    "processing": "처리 중...",
+    "language": "언어",
+    "axisX": "X",
+    "axisY": "Y",
+    "imageFileTypes": "JPEG, PNG, WebP, GIF, HEIC",
+    "theme": {
+      "switchToLight": "라이트 테마로 전환",
+      "switchToDark": "다크 테마로 전환"
+    },
+    "noData": "데이터 없음"
+  },
+  "locale": {
+    "zh-CN": "简体中文",
+    "en-US": "English",
+    "ja-JP": "日本語",
+    "ko-KR": "한국어"
+  },
+  "sidebar": {
+    "left": {
+      "uploadPhotos": "사진 업로드",
+      "canvasSize": "캔버스 크기",
+      "autoLayout": "자동 배치",
+      "exportMosaic": "모자이크 내보내기",
+      "section": {
+        "project": "프로젝트",
+        "upload": "사진 업로드",
+        "canvas": "캔버스 크기",
+        "export": "내보내기 설정"
+      },
+      "project": {
+        "import": "프로젝트 가져오기",
+        "export": "프로젝트 내보내기",
+        "hint": "프로젝트 파일에는 레이아웃, 설정, 원본 이미지 자산이 포함됩니다."
+      },
+      "upload": {
+        "selectPhotos": "사진 선택",
+        "uploadedCount": "{count}장의 사진 업로드됨"
+      },
+      "canvas": {
+        "preset": "프리셋"
+      },
+      "export": {
+        "resolution": "해상도",
+        "format": "형식",
+        "quality": "품질",
+        "keepAspect": "캔버스 종횡비를 유지하여 내보내기",
+        "progress": "{label} ({done}/{total})"
+      }
+    },
+    "right": {
+      "title": "사진 속성",
+      "selectPhotoHint": "캔버스에서 사진을 선택하세요",
+      "currentSelection": "현재 선택",
+      "file": "파일: {name}",
+      "original": "원본: {width} × {height}",
+      "userCrop": "사용자 크롭: {width} × {height}",
+      "displayCrop": "표시 크롭: {width} × {height}",
+      "layer": "레이어: {zIndex}",
+      "section": {
+        "thumbnail": "원본 미리보기",
+        "crop": "크롭",
+        "transform": "변형",
+        "position": "위치",
+        "layer": "레이어",
+        "filters": "색상 및 필터",
+        "replace": "이미지 교체",
+        "history": "작업 기록"
+      },
+      "face": {
+        "detecting": "얼굴 감지 중...",
+        "detected": "얼굴 영역 {count}개 감지됨",
+        "notDetected": "얼굴 영역을 찾지 못했습니다",
+        "previewHint": "종횡비를 유지해 표시합니다 (크롭/필터 영향 없음)",
+        "serviceUnavailable": "얼굴 감지 서비스를 사용할 수 없습니다(MediaPipe 리소스 누락 및 브라우저 FaceDetector API 미지원). pnpm prepare:mediapipe 실행 후 다시 시도하세요.",
+        "photoNoFace": "이 사진에서 얼굴을 감지하지 못했습니다. 원본에 선명한 얼굴이 있는지 확인하세요."
+      },
+      "crop": {
+        "currentArea": "현재 크롭 영역: {width} × {height}",
+        "cropPhoto": "사진 크롭",
+        "zoom": "확대"
+      },
+      "transform": {
+        "scale": "배율",
+        "rotation": "회전"
+      },
+      "position": {
+        "allowMove": "사진 이동 허용"
+      },
+      "layerActions": {
+        "bringToFront": "맨 앞으로",
+        "sendToBack": "맨 뒤로"
+      },
+      "filters": {
+        "brightness": "밝기",
+        "contrast": "대비",
+        "saturation": "채도",
+        "preset": "필터"
+      },
+      "replace": {
+        "hint": "이미지 내용만 교체하고 현재 위치와 표시 크기는 유지합니다.",
+        "selectNew": "새 이미지 선택"
+      },
+      "history": {
+        "undo": "실행 취소",
+        "redo": "다시 실행",
+        "clear": "비우기",
+        "empty": "작업 기록이 없습니다",
+        "latestAt": "최신 · {time}"
+      },
+      "deletePhoto": "사진 삭제"
+    }
+  },
+  "canvas": {
+    "preview": "캔버스 미리보기",
+    "photoCount": "사진 {count}장",
+    "zoomOut": "축소",
+    "zoomIn": "확대",
+    "fitToWindow": "창에 맞춤",
+    "fit": "맞춤",
+    "resetView": "보기 초기화",
+    "reset": "초기화",
+    "cropModeHint": "크롭 모드 - 이미지 내용을 드래그해 크롭 조정, 슬라이더로 확대",
+    "aspectUnknown": "—"
+  },
+  "dropZone": {
+    "title": "여기로 사진을 드래그하세요",
+    "hint": "또는 클릭하여 파일 선택"
+  },
+  "photoList": {
+    "remove": "삭제"
+  },
+  "toast": {
+    "import": {
+      "invalidFiles": "유효한 이미지 파일을 선택하세요 ({types})",
+      "importing": "사진 {count}장 가져오는 중...",
+      "maxPhotos": "최대 150장까지 지원됩니다. 앞의 150장만 선택되었습니다.",
+      "partialSuccess": "{added}장 가져옴, {failed}장 실패 (실패 파일 재시도 가능)",
+      "success": "사진 {count}장을 가져오고 자동 배치를 완료했습니다",
+      "failed": "가져오기에 실패했습니다. 다시 시도하세요"
+    },
+    "layout": {
+      "calculating": "최적 레이아웃 계산 중...",
+      "success": "자동 배치 완료!",
+      "failed": "배치 실패, 다시 시도하세요"
+    },
+    "export": {
+      "start": "고해상도 모자이크 생성 중...",
+      "success": "내보내기 성공!",
+      "failed": "내보내기 실패: {message}",
+      "preparing": "준비 중..."
+    },
+    "project": {
+      "importing": "프로젝트 가져오는 중...",
+      "importSuccess": "프로젝트 가져오기 성공",
+      "importFailed": "가져오기 실패: {message}",
+      "exporting": "프로젝트 파일 패키징 중...",
+      "exportSuccess": "프로젝트 파일을 내보냈습니다",
+      "exportFailed": "내보내기 실패: {message}"
+    },
+    "crop": {
+      "applied": "크롭이 적용되었습니다",
+      "cancelled": "크롭이 취소되었습니다",
+      "hint": "크롭 모드: 이미지 내용을 드래그해 조정, 슬라이더로 확대, Enter 확인, Esc 취소"
+    },
+    "replace": {
+      "success": "이미지가 교체되었습니다",
+      "failed": "교체 실패, 다시 시도하세요"
+    },
+    "adjustments": {
+      "applied": "색상/필터가 적용되었습니다"
+    },
+    "history": {
+      "cleared": "작업 기록을 비웠습니다"
+    },
+    "photos": {
+      "cleared": "모든 사진을 비웠습니다"
+    }
+  },
+  "dialog": {
+    "clearPhotos": "모든 사진을 비우시겠습니까?",
+    "clearHistory": "작업 기록을 비우시겠습니까?",
+    "deletePhoto": "이 사진을 삭제하시겠습니까?"
+  },
+  "history": {
+    "action": {
+      "autoLayout": "자동 배치",
+      "moveX": "이동 (X)",
+      "moveY": "이동 (Y)",
+      "transform": "변형",
+      "scale": "배율",
+      "rotation": "회전",
+      "adjustments": "색상/필터",
+      "drag": "드래그",
+      "crop": "크롭",
+      "clearAll": "모든 사진 비우기",
+      "replacePhoto": "사진 교체: {before} → {after}",
+      "deletePhoto": "사진 삭제: {name}",
+      "bringToFront": "맨 앞으로",
+      "sendToBack": "맨 뒤로"
+    }
+  },
+  "filterPreset": {
+    "none": "없음",
+    "blackWhite": "흑백",
+    "sepia": "세피아",
+    "vintage": "빈티지"
+  },
+  "preset": {
+    "40x50": "40cm × 50cm",
+    "40x60": "40cm × 60cm",
+    "50x70": "50cm × 70cm",
+    "60x80": "60cm × 80cm",
+    "60x90": "60cm × 90cm",
+    "50x40": "50cm × 40cm",
+    "60x40": "60cm × 40cm",
+    "70x50": "70cm × 50cm",
+    "80x60": "80cm × 60cm",
+    "90x60": "90cm × 60cm",
+    "100x70": "100cm × 70cm",
+    "100x80": "100cm × 80cm",
+    "custom": "사용자 지정 크기"
+  },
+  "export": {
+    "resolution": {
+      "original": "원본 캔버스 크기",
+      "1080p": "1080p (긴 변 1920)",
+      "2k": "2K (긴 변 2560)",
+      "4k": "4K (긴 변 3840)"
+    },
+    "format": {
+      "png": "PNG (무손실)",
+      "jpeg": "JPEG",
+      "webp": "WebP"
+    },
+    "progress": {
+      "preparing": "내보내기 준비 중...",
+      "encoding": "인코딩 중..."
+    },
+    "errors": {
+      "dimensionTooLarge": "내보내기 크기가 브라우저 제한을 초과했습니다 ({width}×{height}). 해상도나 캔버스 크기를 줄이세요.",
+      "pixelsTooLarge": "픽셀 수가 너무 큽니다 ({width}×{height}). 해상도나 캔버스 크기를 줄이세요.",
+      "contextUnavailable": "Canvas 2D 컨텍스트를 생성할 수 없습니다 (브라우저/메모리 제한).",
+      "cancelled": "내보내기가 취소되었습니다",
+      "incompletePhoto": "사진 데이터가 불완전합니다: {name}",
+      "invalidCrop": "크롭 데이터가 유효하지 않습니다: {name}",
+      "webpUnsupported": "브라우저에서 WebP 내보내기를 지원하지 않을 수 있습니다. PNG/JPEG를 사용하세요."
+    }
+  },
+  "project": {
+    "errors": {
+      "missingProjectJson": "프로젝트 아카이브에 project.json이 없습니다",
+      "unsupportedVersion": "지원되지 않는 프로젝트 파일 버전입니다",
+      "missingAsset": "이미지 자산이 없습니다: {name} (assetId={assetId})"
+    }
+  },
+  "vision": {
+    "errors": {
+      "workerProcessFailed": "Vision worker 처리 실패",
+      "workerCrashed": "Vision worker 오류 발생",
+      "disabled": "Vision 모드가 활성화되지 않았습니다",
+      "initFailed": "Vision을 사용할 수 없습니다 (초기화 실패)"
+    }
+  }
+}

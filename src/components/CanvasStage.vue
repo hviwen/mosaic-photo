@@ -2,15 +2,15 @@
   <div class="canvas-stage">
     <div class="canvas-stage__header">
       <div class="canvas-stage__title">
-        <span>画布预览</span>
-        <span class="badge badge--primary">{{ store.photoCount }} 张照片</span>
+        <span>{{ t('canvas.preview') }}</span>
+        <span class="badge badge--primary">{{ t('canvas.photoCount', { count: store.photoCount }) }}</span>
       </div>
       <div class="canvas-stage__actions">
         <div class="zoom-control">
           <button
             class="btn btn--ghost btn--icon"
             @click="zoomOut"
-            title="缩小">
+            :title="t('canvas.zoomOut')">
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -22,7 +22,7 @@
             </svg>
           </button>
           <span class="zoom-control__value">{{ zoomPercent }}%</span>
-          <button class="btn btn--ghost btn--icon" @click="zoomIn" title="放大">
+          <button class="btn btn--ghost btn--icon" @click="zoomIn" :title="t('canvas.zoomIn')">
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -38,7 +38,7 @@
         <button
           class="btn btn--ghost btn--sm"
           @click="fitToView"
-          title="适应窗口">
+          :title="t('canvas.fitToWindow')">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -49,7 +49,7 @@
             <path
               d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />
           </svg>
-          适应
+          {{ t('canvas.fit') }}
         </button>
         <button
           class="btn btn--ghost btn--sm"
@@ -57,7 +57,7 @@
             !store.hasCanvasOffset && Math.abs(viewport.scale - 1) < 0.001
           "
           @click="resetView"
-          title="重置视图">
+          :title="t('canvas.resetView')">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -70,7 +70,7 @@
             <path
               d="M20.49 9a9 9 0 00-14.13-3.36L1 10m22 4l-5.36 4.36A9 9 0 013.51 15" />
           </svg>
-          重置
+          {{ t('canvas.reset') }}
         </button>
       </div>
     </div>
@@ -116,7 +116,7 @@
     <!-- 裁剪模式提示 -->
     <Transition name="fade">
       <div v-if="store.cropModePhotoId" class="crop-hint">
-        <span>裁剪模式 - 拖动图片内容调整裁剪，使用滑条缩放</span>
+        <span>{{ t('canvas.cropModeHint') }}</span>
         <div class="crop-hint__actions">
           <button class="btn btn--success btn--sm" @click="applyCrop">
             <svg
@@ -128,7 +128,7 @@
               height="16">
               <polyline points="20,6 9,17 4,12" />
             </svg>
-            确认
+            {{ t('common.confirm') }}
           </button>
           <button class="btn btn--secondary btn--sm" @click="cancelCrop">
             <svg
@@ -141,7 +141,7 @@
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-            取消
+            {{ t('common.cancel') }}
           </button>
         </div>
       </div>
@@ -151,6 +151,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
+import { useI18n } from "vue-i18n";
 import { useMosaicStore } from "@/stores/mosaic";
 import { useToastStore } from "@/stores/toast";
 import { useThemeStore } from "@/stores/theme";
@@ -159,7 +160,6 @@ import {
   clamp,
   inverseRotatePoint,
   getDrawHalfSize,
-  getHandlePositions,
   pointInPhoto,
 } from "@/utils/math";
 import { buildCanvasFilter } from "@/utils/filters";
@@ -174,6 +174,7 @@ import {
 const store = useMosaicStore();
 const toast = useToastStore();
 const themeStore = useThemeStore();
+const { t } = useI18n();
 
 const stageBody = ref<HTMLDivElement | null>(null);
 const canvasEl = ref<HTMLCanvasElement | null>(null);
@@ -205,7 +206,7 @@ const canvasPhysicalHeight = computed(() =>
 const canvasAspectLabel = computed(() => {
   const w = store.canvasWidth;
   const h = store.canvasHeight;
-  if (!w || !h) return "—";
+  if (!w || !h) return t("canvas.aspectUnknown");
   // Try to find a simple integer ratio via GCD
   const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
   const g = gcd(Math.round(w), Math.round(h));
@@ -214,7 +215,9 @@ const canvasAspectLabel = computed(() => {
   if (rw <= 20 && rh <= 20) return `${rw}:${rh}`;
   return (w / h).toFixed(2);
 });
-const canvasPresetLabel = computed(() => store.currentPreset?.label ?? "");
+const canvasPresetLabel = computed(() =>
+  store.currentPreset?.label ? t(store.currentPreset.label as any) : "",
+);
 
 // 拖拽状态
 type PointerMode =
@@ -757,19 +760,6 @@ function findPhotoAt(x: number, y: number): PhotoEntity | null {
   return null;
 }
 
-// 查找点击的手柄
-function findHandleAt(photo: PhotoEntity, x: number, y: number): Handle | null {
-  const handles = getHandlePositions(photo);
-  const hitRadius = 12 / viewport.value.scale;
-
-  for (const { handle, x: hx, y: hy } of handles) {
-    if (Math.abs(x - hx) <= hitRadius && Math.abs(y - hy) <= hitRadius) {
-      return handle;
-    }
-  }
-  return null;
-}
-
 // 指针事件处理
 function handlePointerDown(e: PointerEvent) {
   const isMiddlePan = e.button === 1;
@@ -918,7 +908,7 @@ function handlePointerUp() {
     if (photo.cx !== prev.startCx || photo.cy !== prev.startCy) {
       store.pushPhotoHistoryFromPartials(
         prev.id,
-        "拖动",
+        t("history.action.drag"),
         { cx: prev.startCx, cy: prev.startCy },
         { cx: photo.cx, cy: photo.cy },
       );
@@ -932,7 +922,7 @@ function handlePointerUp() {
     if (photo.scale !== prev.startScale) {
       store.pushPhotoHistoryFromPartials(
         prev.id,
-        "缩放",
+        t("history.action.scale"),
         { scale: prev.startScale },
         { scale: photo.scale },
       );
@@ -1138,12 +1128,12 @@ function applyCrop() {
 
   store.applyCropLocal(photo.id, { ...cropDraft.value }, newScale);
   store.commitCropMode();
-  toast.success("裁剪已应用");
+  toast.success(t("toast.crop.applied"));
 }
 
 function cancelCrop() {
   store.cancelCropMode();
-  toast.info("已取消裁剪");
+  toast.info(t("toast.crop.cancelled"));
 }
 
 // 渲染

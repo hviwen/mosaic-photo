@@ -1,0 +1,275 @@
+{
+  "common": {
+    "appName": "MosaicPhoto",
+    "expand": "展开",
+    "collapse": "折叠",
+    "cancel": "取消",
+    "confirm": "确认",
+    "clear": "清空",
+    "apply": "应用",
+    "reset": "重置",
+    "delete": "删除",
+    "processing": "处理中...",
+    "language": "语言",
+    "axisX": "X",
+    "axisY": "Y",
+    "imageFileTypes": "JPEG、PNG、WebP、GIF、HEIC",
+    "theme": {
+      "switchToLight": "切换到浅色主题",
+      "switchToDark": "切换到深色主题"
+    },
+    "noData": "暂无数据"
+  },
+  "locale": {
+    "zh-CN": "简体中文",
+    "en-US": "English",
+    "ja-JP": "日本語",
+    "ko-KR": "한국어"
+  },
+  "sidebar": {
+    "left": {
+      "uploadPhotos": "上传照片",
+      "canvasSize": "画布尺寸",
+      "autoLayout": "自动排版",
+      "exportMosaic": "导出拼图",
+      "section": {
+        "project": "工程",
+        "upload": "上传照片",
+        "canvas": "画布尺寸",
+        "export": "导出设置"
+      },
+      "project": {
+        "import": "导入工程",
+        "export": "导出工程",
+        "hint": "工程文件包含布局、参数与原始图片资源。"
+      },
+      "upload": {
+        "selectPhotos": "选择照片",
+        "uploadedCount": "已上传 {count} 张照片"
+      },
+      "canvas": {
+        "preset": "预设"
+      },
+      "export": {
+        "resolution": "分辨率",
+        "format": "格式",
+        "quality": "质量",
+        "keepAspect": "保持画布宽高比等比缩放导出",
+        "progress": "{label}（{done}/{total}）"
+      }
+    },
+    "right": {
+      "title": "照片属性",
+      "selectPhotoHint": "在画布上选择一张照片",
+      "currentSelection": "当前选中",
+      "file": "文件：{name}",
+      "original": "原图：{width} × {height}",
+      "userCrop": "用户裁剪：{width} × {height}",
+      "displayCrop": "显示裁剪：{width} × {height}",
+      "layer": "图层：{zIndex}",
+      "section": {
+        "thumbnail": "原图缩略",
+        "crop": "裁剪",
+        "transform": "变换",
+        "position": "位置",
+        "layer": "图层",
+        "filters": "调色与滤镜",
+        "replace": "替换图片",
+        "history": "操作历史"
+      },
+      "face": {
+        "detecting": "人脸检测中...",
+        "detected": "已检测到 {count} 个人脸区域",
+        "notDetected": "未检测到人脸区域",
+        "previewHint": "保持宽高比等比缩放展示（不受裁剪/滤镜影响）",
+        "serviceUnavailable": "人脸检测服务未就绪（MediaPipe 资源缺失且浏览器不支持原生 FaceDetector API）。请执行 pnpm prepare:mediapipe 准备资源后重试。",
+        "photoNoFace": "该照片未检测到人脸，请确保原图中包含清晰人脸。"
+      },
+      "crop": {
+        "currentArea": "当前裁剪区域: {width} × {height}",
+        "cropPhoto": "裁剪照片",
+        "zoom": "缩放"
+      },
+      "transform": {
+        "scale": "缩放",
+        "rotation": "旋转"
+      },
+      "position": {
+        "allowMove": "允许移动照片"
+      },
+      "layerActions": {
+        "bringToFront": "置顶",
+        "sendToBack": "置底"
+      },
+      "filters": {
+        "brightness": "亮度",
+        "contrast": "对比度",
+        "saturation": "饱和度",
+        "preset": "滤镜"
+      },
+      "replace": {
+        "hint": "仅替换图片内容，保持当前位置与显示尺寸不变。",
+        "selectNew": "选择新图片"
+      },
+      "history": {
+        "undo": "撤销",
+        "redo": "重做",
+        "clear": "清空",
+        "empty": "暂无操作记录",
+        "latestAt": "最新 · {time}"
+      },
+      "deletePhoto": "删除照片"
+    }
+  },
+  "canvas": {
+    "preview": "画布预览",
+    "photoCount": "{count} 张照片",
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "fitToWindow": "适应窗口",
+    "fit": "适应",
+    "resetView": "重置视图",
+    "reset": "重置",
+    "cropModeHint": "裁剪模式 - 拖动图片内容调整裁剪，使用滑条缩放",
+    "aspectUnknown": "—"
+  },
+  "dropZone": {
+    "title": "拖拽照片到这里",
+    "hint": "或点击选择文件"
+  },
+  "photoList": {
+    "remove": "删除"
+  },
+  "toast": {
+    "import": {
+      "invalidFiles": "请选择有效的图片文件（{types}）",
+      "importing": "正在导入 {count} 张照片...",
+      "maxPhotos": "最多支持导入 150 张照片，已自动选择前 150 张",
+      "partialSuccess": "已导入 {added} 张，失败 {failed} 张（可尝试重新选择失败文件）",
+      "success": "已导入 {count} 张照片，并完成自动排版",
+      "failed": "导入失败，请重试"
+    },
+    "layout": {
+      "calculating": "正在计算最佳布局...",
+      "success": "自动排列完成！",
+      "failed": "排列失败，请重试"
+    },
+    "export": {
+      "start": "正在生成高清拼图...",
+      "success": "导出成功！",
+      "failed": "导出失败：{message}",
+      "preparing": "准备中..."
+    },
+    "project": {
+      "importing": "正在导入工程...",
+      "importSuccess": "工程导入成功",
+      "importFailed": "导入失败：{message}",
+      "exporting": "正在打包工程文件...",
+      "exportSuccess": "工程文件已导出",
+      "exportFailed": "导出失败：{message}"
+    },
+    "crop": {
+      "applied": "裁剪已应用",
+      "cancelled": "已取消裁剪",
+      "hint": "裁剪模式：拖动图片内容调整裁剪，使用滑条缩放，Enter 确认，Esc 取消"
+    },
+    "replace": {
+      "success": "图片已替换",
+      "failed": "替换失败，请重试"
+    },
+    "adjustments": {
+      "applied": "已应用调色/滤镜"
+    },
+    "history": {
+      "cleared": "已清空操作历史"
+    },
+    "photos": {
+      "cleared": "已清空所有照片"
+    }
+  },
+  "dialog": {
+    "clearPhotos": "确定要清空所有照片吗？",
+    "clearHistory": "确定要清空操作历史吗？",
+    "deletePhoto": "确定要删除这张照片吗？"
+  },
+  "history": {
+    "action": {
+      "autoLayout": "自动排版",
+      "moveX": "移动（X）",
+      "moveY": "移动（Y）",
+      "transform": "变换",
+      "scale": "缩放",
+      "rotation": "旋转",
+      "adjustments": "调色/滤镜",
+      "drag": "拖动",
+      "crop": "裁剪",
+      "clearAll": "清空所有照片",
+      "replacePhoto": "替换照片：{before} → {after}",
+      "deletePhoto": "删除照片：{name}",
+      "bringToFront": "置顶",
+      "sendToBack": "置底"
+    }
+  },
+  "filterPreset": {
+    "none": "无",
+    "blackWhite": "黑白",
+    "sepia": "棕褐色",
+    "vintage": "复古"
+  },
+  "preset": {
+    "40x50": "40cm × 50cm",
+    "40x60": "40cm × 60cm",
+    "50x70": "50cm × 70cm",
+    "60x80": "60cm × 80cm",
+    "60x90": "60cm × 90cm",
+    "50x40": "50cm × 40cm",
+    "60x40": "60cm × 40cm",
+    "70x50": "70cm × 50cm",
+    "80x60": "80cm × 60cm",
+    "90x60": "90cm × 60cm",
+    "100x70": "100cm × 70cm",
+    "100x80": "100cm × 80cm",
+    "custom": "自定义尺寸"
+  },
+  "export": {
+    "resolution": {
+      "original": "原始画布尺寸",
+      "1080p": "1080p（长边 1920）",
+      "2k": "2K（长边 2560）",
+      "4k": "4K（长边 3840）"
+    },
+    "format": {
+      "png": "PNG（无损）",
+      "jpeg": "JPEG",
+      "webp": "WebP"
+    },
+    "progress": {
+      "preparing": "准备导出...",
+      "encoding": "编码中..."
+    },
+    "errors": {
+      "dimensionTooLarge": "导出边长超出浏览器限制（{width}×{height}），请降低分辨率或缩小画布",
+      "pixelsTooLarge": "导出像素过大（{width}×{height}），请降低分辨率或缩小画布",
+      "contextUnavailable": "无法创建 Canvas 2D 上下文（可能是浏览器/内存限制）",
+      "cancelled": "已取消导出",
+      "incompletePhoto": "照片数据不完整：{name}",
+      "invalidCrop": "裁剪数据不合法：{name}",
+      "webpUnsupported": "当前浏览器可能不支持 WebP 导出，请改用 PNG/JPEG"
+    }
+  },
+  "project": {
+    "errors": {
+      "missingProjectJson": "工程文件缺少 project.json",
+      "unsupportedVersion": "不支持的工程文件版本",
+      "missingAsset": "缺少图片资源：{name}（assetId={assetId}）"
+    }
+  },
+  "vision": {
+    "errors": {
+      "workerProcessFailed": "Vision worker 处理失败",
+      "workerCrashed": "Vision worker 发生错误",
+      "disabled": "Vision 模式未启用",
+      "initFailed": "Vision 已失效（初始化失败）"
+    }
+  }
+}

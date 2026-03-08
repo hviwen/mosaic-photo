@@ -245,7 +245,7 @@ import { useI18n } from 'vue-i18n'
 import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
-import { isValidImageFile } from '@/utils/image'
+import { isImageImportError, isValidImageFile } from '@/utils/image'
 import type { ExportFormat, ExportResolutionPreset } from '@/types'
 import PhotoList from './PhotoList.vue'
 
@@ -333,7 +333,11 @@ async function handleFiles(files: File[]) {
     }
   } catch (err) {
     console.error('Import failed:', err)
-    toast.error(t('toast.import.failed'))
+    toast.error(
+      isImageImportError(err, 'heic-transcode-failed')
+        ? t('toast.import.heicDecodeFailed')
+        : t('toast.import.failed')
+    )
   }
   isImporting.value = false
   selectedFiles.value = []

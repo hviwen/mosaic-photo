@@ -144,6 +144,7 @@
     "import": {
       "invalidFiles": "请选择有效的图片文件（{types}）",
       "importing": "正在导入 {count} 张照片...",
+      "heicDecodeFailed": "HEIC 图片解码失败，请重试或先转换为 JPEG/PNG",
       "maxPhotos": "最多支持导入 150 张照片，已自动选择前 150 张",
       "partialSuccess": "已导入 {added} 张，失败 {failed} 张（可尝试重新选择失败文件）",
       "success": "已导入 {count} 张照片，并完成自动排版",
@@ -175,6 +176,7 @@
     },
     "replace": {
       "success": "图片已替换",
+      "heicDecodeFailed": "HEIC 图片解码失败，无法替换，请重试或先转换为 JPEG/PNG",
       "failed": "替换失败，请重试"
     },
     "adjustments": {

@@ -144,6 +144,7 @@
     "import": {
       "invalidFiles": "유효한 이미지 파일을 선택하세요 ({types})",
       "importing": "사진 {count}장 가져오는 중...",
+      "heicDecodeFailed": "HEIC 이미지 디코딩에 실패했습니다. 다시 시도하거나 먼저 JPEG/PNG로 변환하세요.",
       "maxPhotos": "최대 150장까지 지원됩니다. 앞의 150장만 선택되었습니다.",
       "partialSuccess": "{added}장 가져옴, {failed}장 실패 (실패 파일 재시도 가능)",
       "success": "사진 {count}장을 가져오고 자동 배치를 완료했습니다",
@@ -175,6 +176,7 @@
     },
     "replace": {
       "success": "이미지가 교체되었습니다",
+      "heicDecodeFailed": "HEIC 이미지 디코딩에 실패해 교체할 수 없습니다. 다시 시도하거나 먼저 JPEG/PNG로 변환하세요.",
       "failed": "교체 실패, 다시 시도하세요"
     },
     "adjustments": {

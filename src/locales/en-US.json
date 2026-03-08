@@ -144,6 +144,7 @@
     "import": {
       "invalidFiles": "Please select valid image files ({types})",
       "importing": "Importing {count} photos...",
+      "heicDecodeFailed": "HEIC decoding failed. Try again or convert the image to JPEG/PNG first.",
       "maxPhotos": "Up to 150 photos are supported. Only the first 150 were selected.",
       "partialSuccess": "Imported {added}, failed {failed} (you can retry failed files)",
       "success": "Imported {count} photos and completed auto layout",
@@ -175,6 +176,7 @@
     },
     "replace": {
       "success": "Image replaced",
+      "heicDecodeFailed": "HEIC decoding failed, so the image could not be replaced. Try again or convert it to JPEG/PNG first.",
       "failed": "Replace failed, please try again"
     },
     "adjustments": {

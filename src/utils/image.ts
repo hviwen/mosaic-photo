@@ -38,6 +38,56 @@ type DecodedImageSource = {
   cleanup?: () => void;
 };
 
+export type NormalizedImageImport = {
+  file: File;
+  originalFile: File;
+  isTranscoded: boolean;
+};
+
+export class ImageImportError extends Error {
+  readonly code: "heic-transcode-failed";
+
+  constructor(code: "heic-transcode-failed", message?: string) {
+    super(message ?? code);
+    this.name = "ImageImportError";
+    this.code = code;
+  }
+}
+
+export function isImageImportError(
+  error: unknown,
+  code?: ImageImportError["code"],
+): error is ImageImportError {
+  if (!(error instanceof ImageImportError)) return false;
+  if (!code) return true;
+  return error.code === code;
+}
+
+type HeicTranscoder = (input: {
+  blob: Blob;
+  toType: string;
+  quality: number;
+}) => Promise<Blob | Blob[]>;
+
+async function defaultHeicTranscoder(input: {
+  blob: Blob;
+  toType: string;
+  quality: number;
+}): Promise<Blob | Blob[]> {
+  const { default: heic2any } = await import("heic2any");
+  return heic2any(input);
+}
+
+let heicTranscoder: HeicTranscoder = input => defaultHeicTranscoder(input);
+
+export function setHeicTranscoderForTests(transcoder: HeicTranscoder): void {
+  heicTranscoder = transcoder;
+}
+
+export function resetHeicTranscoderForTests(): void {
+  heicTranscoder = input => defaultHeicTranscoder(input);
+}
+
 /**
  * 从文件创建照片实体
  */
@@ -48,7 +98,8 @@ export async function createPhotoFromFile(
   options?: { id?: string; prefetchSmartCrop?: boolean; maxImageEdge?: number },
 ): Promise<PhotoEntity> {
   const id = options?.id ?? generateId();
-  const decoded = await decodeImageFile(file);
+  const normalized = await normalizeImageFileForImport(file);
+  const decoded = await decodeImageFile(normalized.file);
   let width = 0;
   let height = 0;
   let canvas!: HTMLCanvasElement;
@@ -73,7 +124,7 @@ export async function createPhotoFromFile(
 
   const photo: PhotoEntity = {
     id,
-    name: file.name,
+    name: normalized.originalFile.name,
     srcUrl: decoded.srcUrl,
     image: canvas,
     sourceWidth: decoded.sourceWidth,
@@ -368,9 +419,51 @@ export function getFileExtension(filename: string): string {
 
 export function isHeicFile(file: File): boolean {
   const type = String(file.type || "").toLowerCase();
-  if (type.includes("heic") || type.includes("heif")) return true;
+  if (type) return type.includes("heic") || type.includes("heif");
   const ext = getFileExtension(file.name);
   return ext === "heic" || ext === "heif";
+}
+
+export async function normalizeImageFileForImport(
+  file: File,
+): Promise<NormalizedImageImport> {
+  if (!isHeicFile(file)) {
+    return {
+      file,
+      originalFile: file,
+      isTranscoded: false,
+    };
+  }
+
+  let output: Blob | Blob[];
+  try {
+    output = await heicTranscoder({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+  } catch (error) {
+    throw new ImageImportError(
+      "heic-transcode-failed",
+      error instanceof Error ? error.message : "HEIC transcoding failed",
+    );
+  }
+
+  const blob = Array.isArray(output) ? output[0] : output;
+  if (!(blob instanceof Blob)) {
+    throw new ImageImportError("heic-transcode-failed");
+  }
+
+  const normalizedFile = new File([blob], file.name, {
+    type: "image/jpeg",
+    lastModified: file.lastModified || Date.now(),
+  });
+
+  return {
+    file: normalizedFile,
+    originalFile: file,
+    isTranscoded: true,
+  };
 }
 
 /**

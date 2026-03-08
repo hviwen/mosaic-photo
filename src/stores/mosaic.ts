@@ -17,6 +17,7 @@ import {
   createPreviewUrlFromImageSource,
   createPhotoFromFile,
   isHeicFile,
+  normalizeImageFileForImport,
 } from "@/utils/image";
 import { createAssetId, putAsset } from "@/project/assets";
 import type { ProjectAssetMeta } from "@/project/schema";
@@ -1018,6 +1019,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     let done = 0;
     let added = 0;
     let failed = 0;
+    let firstError: unknown = null;
 
     const runOne = async (file: File) => {
       const photoId = generateId();
@@ -1039,6 +1041,16 @@ export const useMosaicStore = defineStore("mosaic", () => {
       }
 
       let photo: PhotoEntity | null = null;
+      let normalizedFile = file;
+
+      try {
+        normalizedFile = (await normalizeImageFileForImport(file)).file;
+      } catch (e) {
+        if (!firstError) firstError = e;
+        failed++;
+        console.warn("Import normalization failed:", file.name, e);
+        return;
+      }
 
       // 优先走 vision worker；失败则自动降级到主线程导入（native face + saliency）
       if (vision.isEnabled()) {
@@ -1046,7 +1058,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
           console.log("[FaceDebug] Using vision worker for photo:", photoId);
           const res = await vision.processFile({
             photoId,
-            file,
+            file: normalizedFile,
             previewMaxEdge,
           });
           const srcUrl = isHeicFile(file)
@@ -1054,8 +1066,8 @@ export const useMosaicStore = defineStore("mosaic", () => {
                 res.previewBitmap,
                 res.previewWidth,
                 res.previewHeight,
-              ).catch(() => URL.createObjectURL(file))
-            : URL.createObjectURL(file);
+              ).catch(() => URL.createObjectURL(normalizedFile))
+            : URL.createObjectURL(normalizedFile);
 
           const fullCrop: CropRect = {
             x: 0,
@@ -1121,7 +1133,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       if (!photo) {
         try {
           const fallback = await createPhotoFromFile(
-            file,
+            normalizedFile,
             canvasWidth.value,
             canvasHeight.value,
             {
@@ -1130,9 +1142,11 @@ export const useMosaicStore = defineStore("mosaic", () => {
               maxImageEdge: previewMaxEdge,
             },
           );
+          fallback.name = file.name;
           fallback.assetId = assetId ?? undefined;
           photo = fallback;
         } catch (e) {
+          if (!firstError) firstError = e;
           failed++;
           console.warn("Import failed:", file.name, e);
           return;
@@ -1157,6 +1171,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
     }
 
     await Promise.all(executing);
+
+    if (added === 0 && failed > 0 && firstError instanceof Error) {
+      throw firstError;
+    }
 
     // 导入完成后统一自动排版（全量重排，避免重叠/集中/空白）
     await autoLayoutAsync();
@@ -1197,8 +1215,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
       console.warn("Failed to persist replacement asset:", e);
     }
 
+    const normalizedFile = (await normalizeImageFileForImport(file)).file;
+
     const loaded = await createPhotoFromFile(
-      file,
+      normalizedFile,
       canvasWidth.value,
       canvasHeight.value,
       { id },

@@ -137,6 +137,7 @@ async function decodeFileToBitmap(file: File): Promise<ImageBitmap> {
   if (typeof createImageBitmap !== "function") {
     throw new Error("当前浏览器不支持 createImageBitmap，无法在 Worker 中解码");
   }
+  // 主线程会先把 HEIC/HEIF 规范化为浏览器可解码文件，这里只处理可直接解码的输入。
   try {
     return await createImageBitmap(file, {
       imageOrientation: "from-image",

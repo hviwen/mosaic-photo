@@ -144,6 +144,7 @@
     "import": {
       "invalidFiles": "有効な画像ファイルを選択してください（{types}）",
       "importing": "{count} 枚の写真を読み込み中...",
+      "heicDecodeFailed": "HEIC 画像のデコードに失敗しました。再試行するか、先に JPEG/PNG に変換してください。",
       "maxPhotos": "最大 150 枚まで対応しています。先頭 150 枚のみ選択されました。",
       "partialSuccess": "{added} 枚を読み込み、{failed} 枚が失敗しました（失敗ファイルは再選択可能）",
       "success": "{count} 枚の写真を読み込み、自動レイアウトを完了しました",
@@ -175,6 +176,7 @@
     },
     "replace": {
       "success": "画像を置換しました",
+      "heicDecodeFailed": "HEIC 画像のデコードに失敗したため置換できませんでした。再試行するか、先に JPEG/PNG に変換してください。",
       "failed": "置換に失敗しました。再試行してください"
     },
     "adjustments": {

@@ -1,4 +1,4 @@
-import type { CropRect } from "@/types";
+import type { CropRect, CropStrategyMode } from "@/types";
 import type { KeepRegion, KeepRegionKind } from "@/types/vision";
 
 export type SmartDetectionKind = KeepRegionKind;
@@ -73,6 +73,7 @@ type CacheEntry = {
   updatedAt: number;
   hasFaces: boolean;
   hasObjects: boolean;
+  version: number;
 };
 
 const detectionCache = new Map<string, CacheEntry>();
@@ -108,6 +109,10 @@ export function getSmartDetections(
   photoId: string,
 ): SmartDetection[] | undefined {
   return detectionCache.get(photoId)?.detections;
+}
+
+export function getSmartDetectionsVersion(photoId: string): number {
+  return detectionCache.get(photoId)?.version ?? 0;
 }
 
 export function getSmartDetectionsState(photoId: string): {
@@ -233,18 +238,19 @@ function mergeDetections(
 ) {
   const prev = detectionCache.get(photoId);
   const prevDetections = prev?.detections ?? [];
-
-  // 保持 faces 优先、objects 兜底：合并时不去重，避免 O(n^2)；数量很小影响可忽略
-  const next = [...prevDetections, ...add];
+  const next = dedupeDetections([...prevDetections, ...add]);
   const nextEntry: CacheEntry = {
     detections: next,
     updatedAt: Date.now(),
     hasFaces: flags.hasFaces ?? prev?.hasFaces ?? false,
     hasObjects: flags.hasObjects ?? prev?.hasObjects ?? false,
+    version:
+      hasDetectionChanges(prevDetections, next) || flags.hasFaces != null || flags.hasObjects != null
+        ? (prev?.version ?? 0) + 1
+        : (prev?.version ?? 0),
   };
 
-  // 只有在确实新增了内容才增加 revision，避免频繁触发重排
-  const changed = add.length > 0;
+  const changed = hasDetectionChanges(prevDetections, next);
   detectionCache.set(photoId, nextEntry);
   if (changed) {
     emitDetectionsChanged(photoId);
@@ -309,6 +315,20 @@ export function clampSmartCropTargetAspect(
   const lo = srcAspect / (1 + MAX_ASPECT_DEVIATION);
   const hi = srcAspect * (1 + MAX_ASPECT_DEVIATION);
   return clamp(targetAspect, lo, hi);
+}
+
+export function normalizeTargetAspect(
+  targetAspect: number,
+  imageWidth: number,
+  imageHeight: number,
+): number {
+  return clampSmartCropTargetAspect(targetAspect, imageWidth, imageHeight);
+}
+
+export function getSmartCropMode(detections: SmartDetection[]): CropStrategyMode {
+  if (detections.some(d => d.kind === "face")) return "face-priority";
+  if (detections.some(d => d.kind === "object")) return "object-priority";
+  return "center";
 }
 
 function resolveSourceSize(source: CanvasImageSource): Size | null {
@@ -711,6 +731,55 @@ function expandBox(box: CropRect, margin: number): CropRect {
   };
 }
 
+function areRectsClose(a: CropRect, b: CropRect, eps: number = 0.5): boolean {
+  return (
+    Math.abs(a.x - b.x) <= eps &&
+    Math.abs(a.y - b.y) <= eps &&
+    Math.abs(a.width - b.width) <= eps &&
+    Math.abs(a.height - b.height) <= eps
+  );
+}
+
+function sameDetection(
+  a: SmartDetection,
+  b: SmartDetection,
+  eps: number = 0.5,
+): boolean {
+  return (
+    a.kind === b.kind &&
+    a.label === b.label &&
+    Math.abs(a.score - b.score) <= 1e-3 &&
+    areRectsClose(a.box, b.box, eps)
+  );
+}
+
+function dedupeDetections(detections: SmartDetection[]): SmartDetection[] {
+  const out: SmartDetection[] = [];
+  for (const det of detections) {
+    if (!out.some(existing => sameDetection(existing, det))) {
+      out.push(det);
+    }
+  }
+  return out;
+}
+
+function hasDetectionChanges(
+  prev: SmartDetection[],
+  next: SmartDetection[],
+): boolean {
+  if (prev.length !== next.length) return true;
+  return prev.some((det, idx) => !sameDetection(det, next[idx]));
+}
+
+export function buildRequiredKeepRegions(
+  detections: SmartDetection[],
+  kind?: SmartDetectionKind,
+): CropRect[] {
+  return detections
+    .filter(d => (kind ? d.kind === kind : true))
+    .map(d => expandBox(d.box, 0.12));
+}
+
 function pickImportantSubset(
   detections: SmartDetection[],
   base: CropRect,
@@ -812,6 +881,16 @@ function placeCropToContain(
       : clamp(required.y + required.height / 2 - safeHeight / 2, yMin, yMax);
 
   return { x, y, width: safeWidth, height: safeHeight };
+}
+
+export function placeCropWithKeepRegion(
+  bounds: CropRect,
+  required: CropRect,
+  width: number,
+  height: number,
+  anchor: { x: number; y: number },
+): CropRect {
+  return placeCropToContain(bounds, required, width, height, anchor);
 }
 
 function ensureFaceVisibilityCrop(
@@ -946,7 +1025,7 @@ export function calculateSmartCrop(
   // - 极端竖图：收敛到 [4:6, 1]
   // - 极端横图：收敛到 [1, 6:4]
   // - 非极端：保持原图比例
-  const clampedAspect = clampSmartCropTargetAspect(
+  const clampedAspect = normalizeTargetAspect(
     targetAspect,
     imageWidth,
     imageHeight,
@@ -957,7 +1036,7 @@ export function calculateSmartCrop(
   const cropH = maxFit.height;
 
   if (!detections || detections.length === 0)
-    return clampCropToBounds(maxFit, base);
+    return fallbackCenterCrop(base, clampedAspect, imageWidth, imageHeight);
 
   // 优化：竖向人像（原图高 > 宽）被裁剪为横向比例（targetAspect > 1）时，
   // 常见问题是裁剪高度受“原图宽度/目标比例”限制，导致人脸上下被截断。
@@ -1046,6 +1125,21 @@ export function calculateSmartCrop(
   );
   if (!hasFaces) return refinedCrop;
   return ensureFaceVisibilityCrop(base, refinedCrop, detections);
+}
+
+export function fallbackCenterCrop(
+  crop: CropRect,
+  targetAspect: number,
+  imageWidth: number,
+  imageHeight: number,
+): CropRect {
+  const base = clampCropToBounds(crop, {
+    x: 0,
+    y: 0,
+    width: Math.max(1, imageWidth),
+    height: Math.max(1, imageHeight),
+  });
+  return clampCropToBounds(fitAspectInside(base, targetAspect), base);
 }
 
 function resolveSizeFromImageLike(

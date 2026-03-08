@@ -170,6 +170,43 @@ describe("calculateSmartCrop", () => {
     expect(visibleH).toBeGreaterThanOrEqual(smallFace.box.height - 1);
   });
 
+  it("多人脸时优先保留高分人脸集合", () => {
+    const image = { width: 1800, height: 1200 };
+    const targetAspect = 1;
+    const faces: SmartDetection[] = [
+      {
+        kind: "face",
+        score: 0.95,
+        box: { x: 120, y: 240, width: 180, height: 180 },
+      },
+      {
+        kind: "face",
+        score: 0.9,
+        box: { x: 1320, y: 260, width: 180, height: 180 },
+      },
+      {
+        kind: "object",
+        score: 0.99,
+        label: "background",
+        box: { x: 700, y: 200, width: 420, height: 700 },
+      },
+    ];
+
+    const crop = calculateSmartCrop(image, targetAspect, faces);
+    expect(contains(crop, expandBox(faces[0].box, 0.12))).toBe(true);
+    expect(contains(crop, expandBox(faces[1].box, 0.12))).toBe(true);
+  });
+
+  it("无人脸无人对象时退回简单居中裁剪", () => {
+    const image = { width: 1600, height: 900 };
+    const targetAspect = 1;
+
+    const crop = calculateSmartCrop(image, targetAspect, []);
+    expect(approx(crop.width / crop.height, 1, 1e-2)).toBe(true);
+    expect(approx(crop.x, 350, 1)).toBe(true);
+    expect(approx(crop.y, 0, 1)).toBe(true);
+  });
+
   it("按原图比例判断是否启用受限智能裁剪", () => {
     expect(shouldApplySmartCropByImageAspect(700, 1200)).toBe(true); // 竖图 > 1.5
     expect(shouldApplySmartCropByImageAspect(1600, 900)).toBe(true); // 横图 < 0.667

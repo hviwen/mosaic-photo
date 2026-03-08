@@ -19,6 +19,7 @@ export type FillArrangeAssignmentPhoto = FillArrangePhotoStrategy & {
 export type FillArrangeAssignmentTile = {
   aspect: number;
   dist: number;
+  area: number;
 };
 
 export type FillArrangeAssignmentOptions = {
@@ -26,6 +27,10 @@ export type FillArrangeAssignmentOptions = {
   centerBiasWeight?: number;
   edgeBiasWeight?: number;
   orientationPenalty?: number;
+  evaluatePair: (
+    photo: FillArrangeAssignmentPhoto,
+    tile: FillArrangeAssignmentTile,
+  ) => number;
 };
 
 const EPS = 1e-6;
@@ -123,6 +128,7 @@ function buildCostMatrix(
     const aspectWeight = photo.isExtreme ? 1 : options.nonExtremeWeight;
 
     return tiles.map(tile => {
+      const pairCost = options.evaluatePair(photo, tile);
       const tileAspect = safeAspect(tile.aspect);
       const aspectDelta = Math.abs(Math.log(prefAspect) - Math.log(tileAspect));
       const centerPenalty =
@@ -132,7 +138,13 @@ function buildCostMatrix(
       const orientationPenalty = reversed ? options.orientationPenalty : 0;
       const hardPenalty =
         strictOrientation && reversed ? HARD_ORIENTATION_BLOCK_COST : 0;
-      return aspectWeight * aspectDelta + centerPenalty + orientationPenalty + hardPenalty;
+      return (
+        pairCost +
+        aspectWeight * aspectDelta +
+        centerPenalty +
+        orientationPenalty +
+        hardPenalty
+      );
     });
   });
 
@@ -264,7 +276,7 @@ export function buildFillArrangePhotoStrategy(
 export function assignPhotosToTiles(
   photos: FillArrangeAssignmentPhoto[],
   tiles: FillArrangeAssignmentTile[],
-  options: FillArrangeAssignmentOptions = {},
+  options: FillArrangeAssignmentOptions,
 ): number[] {
   if (photos.length !== tiles.length) {
     throw new Error("fillArrange assignment requires equal photo/tile count");
@@ -277,6 +289,7 @@ export function assignPhotosToTiles(
     centerBiasWeight: options.centerBiasWeight ?? 0.55,
     edgeBiasWeight: options.edgeBiasWeight ?? 0.14,
     orientationPenalty: options.orientationPenalty ?? 40,
+    evaluatePair: options.evaluatePair,
   };
 
   const allowed = createAllowedOrientationMatrix(photos, tiles);

@@ -128,6 +128,53 @@ export interface Placement {
   tileRect?: { x: number; y: number; w: number; h: number };
 }
 
+export type CropStrategyMode =
+  | "face-priority"
+  | "object-priority"
+  | "center";
+
+export interface CropLossBreakdown {
+  orientationViolation: boolean;
+  faceCutPenalty: number;
+  largePhotoCropPenalty: number;
+  aspectDeviationPenalty: number;
+  centerPreference: number;
+  cropAreaLoss: number;
+  cropBudget: number;
+}
+
+export interface CropDecision {
+  crop: CropRect;
+  mode: CropStrategyMode;
+  losses: CropLossBreakdown;
+  totalCost: number;
+}
+
+export interface PhotoLayoutFeatures {
+  id: string;
+  sourceAspect: number;
+  preferredAspect: number;
+  sizeWeight: number;
+  extremeLevel: number;
+  hasFaces: boolean;
+  faceCount: number;
+}
+
+export interface LayoutMetrics {
+  evaluatedPairs: number;
+  cacheHits: number;
+  cacheMisses: number;
+  orientationViolations: number;
+  canvasAdjustmentsTried: number;
+}
+
+export interface FillArrangeResult {
+  placements: Placement[];
+  canvasW: number;
+  canvasH: number;
+  metrics: LayoutMetrics;
+}
+
 // Toast 类型
 export type ToastType = "success" | "error" | "info" | "warning";
 

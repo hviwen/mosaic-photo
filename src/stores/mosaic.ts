@@ -9,6 +9,7 @@ import type {
   AppMode,
   Placement,
   PhotoAdjustments,
+  FillArrangeResult,
 } from "@/types";
 import { fillArrangePhotos } from "@/composables/useLayout";
 import { clampPhotoToCanvas, clampCrop, clamp, generateId } from "@/utils/math";
@@ -55,7 +56,7 @@ type LayoutWorkerFillArrangeRequest = {
 };
 
 type LayoutWorkerFillArrangeResponse =
-  | { id: number; ok: true; placements: Placement[] }
+  | { id: number; ok: true; result: FillArrangeResult }
   | { id: number; ok: false; error: string };
 
 const PRESETS: CanvasPreset[] = [
@@ -177,6 +178,12 @@ export const useMosaicStore = defineStore("mosaic", () => {
   const isExporting = ref<boolean>(false);
   const mode = ref<AppMode>({ kind: "idle" });
 
+  function cropAreaLoss(source: CropRect, target: CropRect): number {
+    const sourceArea = Math.max(1, source.width * source.height);
+    const targetArea = Math.max(1, target.width * target.height);
+    return Math.max(0, 1 - targetArea / sourceArea);
+  }
+
   // 智能裁剪检测结果到达后，尽可能只更新 layoutCrop（不改变位置/缩放），避免“跳动”
   onSmartDetectionsChanged(photoId => {
     if (mode.value.kind !== "idle") return;
@@ -196,7 +203,12 @@ export const useMosaicStore = defineStore("mosaic", () => {
       photo.imageHeight,
       detections && detections.length > 0 ? { detections } : undefined,
     );
-    photo.layoutCrop = clampCrop(next, photo.imageWidth, photo.imageHeight);
+    const nextLayoutCrop = clampCrop(next, photo.imageWidth, photo.imageHeight);
+    const currentLoss = cropAreaLoss(photo.crop, photo.layoutCrop);
+    const nextLoss = cropAreaLoss(photo.crop, nextLayoutCrop);
+    const gain = currentLoss - nextLoss;
+    if (gain < 0.015) return;
+    photo.layoutCrop = nextLayoutCrop;
 
     // 同步更新 scale，确保 layoutCrop.width * scale === tileW（消除重叠/缝隙）
     if (photo.layoutCrop.width > 0) {
@@ -213,7 +225,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
   let layoutWorkerReqId = 0;
   const layoutWorkerPending = new Map<
     number,
-    { resolve: (placements: Placement[]) => void; reject: (err: Error) => void }
+    {
+      resolve: (result: FillArrangeResult) => void;
+      reject: (err: Error) => void;
+    }
   >();
 
   function rejectAllLayoutWorkerPending(err: Error) {
@@ -238,7 +253,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       const pending = layoutWorkerPending.get(msg.id);
       if (!pending) return;
       layoutWorkerPending.delete(msg.id);
-      if (msg.ok) pending.resolve(msg.placements);
+      if (msg.ok) pending.resolve(msg.result);
       else pending.reject(new Error(msg.error));
     };
     w.onerror = () => {
@@ -254,9 +269,22 @@ export const useMosaicStore = defineStore("mosaic", () => {
     return w;
   }
 
-  async function computeFillArrangeInWorker(): Promise<Placement[] | null> {
+  async function computeFillArrangeInWorker(): Promise<FillArrangeResult | null> {
     if (typeof Worker === "undefined") return null;
-    if (photos.value.length === 0) return [];
+    if (photos.value.length === 0) {
+      return {
+        placements: [],
+        canvasW: canvasWidth.value,
+        canvasH: canvasHeight.value,
+        metrics: {
+          evaluatedPairs: 0,
+          cacheHits: 0,
+          cacheMisses: 0,
+          orientationViolations: 0,
+          canvasAdjustmentsTried: 1,
+        },
+      };
+    }
 
     const photoIdsSnapshot = photos.value.map(p => p.id).join("|");
     const inputs: LayoutWorkerFillArrangePhotoInput[] = photos.value.map(p => ({
@@ -270,7 +298,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     const requestId = ++layoutWorkerReqId;
     const w = getLayoutWorker();
 
-    const placements = await new Promise<Placement[]>((resolve, reject) => {
+    const result = await new Promise<FillArrangeResult>((resolve, reject) => {
       layoutWorkerPending.set(requestId, { resolve, reject });
       const req: LayoutWorkerFillArrangeRequest = {
         id: requestId,
@@ -285,7 +313,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     // Avoid applying stale results if photo list changed mid-flight.
     const photoIdsNow = photos.value.map(p => p.id).join("|");
     if (photoIdsNow !== photoIdsSnapshot) return null;
-    return placements;
+    return result;
   }
 
   // Computed
@@ -819,12 +847,19 @@ export const useMosaicStore = defineStore("mosaic", () => {
     if (photos.value.length === 0) return true;
 
     try {
-      const placements = await computeFillArrangeInWorker();
-      if (!placements) {
+      const result = await computeFillArrangeInWorker();
+      if (!result) {
         autoLayout();
         return true;
       }
-      applyPlacements(placements);
+      if (
+        result.canvasW !== canvasWidth.value ||
+        result.canvasH !== canvasHeight.value
+      ) {
+        canvasWidth.value = result.canvasW;
+        canvasHeight.value = result.canvasH;
+      }
+      applyPlacements(result.placements);
       return true;
     } catch {
       // Fallback to main thread on any worker error.

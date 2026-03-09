@@ -364,8 +364,32 @@ async function handleArrange() {
   await new Promise(resolve => setTimeout(resolve, 50))
 
   try {
-    await store.autoLayoutWithHistoryAsync(t('history.action.autoLayout'))
-    toast.success(t('toast.layout.success'))
+    const assessed = await store.autoLayoutAssess()
+    if (!assessed) return
+
+    if (assessed.quality?.accepted) {
+      toast.success(t('toast.layout.success'))
+      return
+    }
+
+    const confirmed = confirm(
+      t('dialog.deepLayoutConfirm', {
+        worst: Math.round((assessed.quality?.worstCropLoss ?? 0) * 100),
+        count: assessed.quality?.photosOverCropThreshold ?? 0,
+      })
+    )
+
+    if (confirmed) {
+      const result = await store.autoLayoutDeepSearchConfirmed()
+      if (result?.quality?.accepted) {
+        toast.success(t('toast.layout.success'))
+      } else {
+        toast.warning(t('toast.layout.deepSearchPartial'))
+      }
+    } else {
+      store.applyFillArrangeResult(assessed)
+      toast.warning(t('toast.layout.acceptedBestEffort'))
+    }
   } catch (err) {
     console.error('Arrange failed:', err)
     toast.error(t('toast.layout.failed'))

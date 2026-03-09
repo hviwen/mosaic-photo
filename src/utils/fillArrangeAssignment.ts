@@ -27,6 +27,10 @@ export type FillArrangeAssignmentOptions = {
   centerBiasWeight?: number;
   edgeBiasWeight?: number;
   orientationPenalty?: number;
+  isPairAllowed?: (
+    photo: FillArrangeAssignmentPhoto,
+    tile: FillArrangeAssignmentTile,
+  ) => boolean;
   evaluatePair: (
     photo: FillArrangeAssignmentPhoto,
     tile: FillArrangeAssignmentTile,
@@ -74,9 +78,17 @@ function deviationFromSquare(aspect: number): number {
 function createAllowedOrientationMatrix(
   photos: FillArrangeAssignmentPhoto[],
   tiles: FillArrangeAssignmentTile[],
+  isPairAllowed?: (
+    photo: FillArrangeAssignmentPhoto,
+    tile: FillArrangeAssignmentTile,
+  ) => boolean,
 ): boolean[][] {
   return photos.map(photo =>
-    tiles.map(tile => !isOrientationReversed(photo.orientation, tile.aspect)),
+    tiles.map(
+      tile =>
+        !isOrientationReversed(photo.orientation, tile.aspect) &&
+        (isPairAllowed ? isPairAllowed(photo, tile) : true),
+    ),
   );
 }
 
@@ -289,12 +301,29 @@ export function assignPhotosToTiles(
     centerBiasWeight: options.centerBiasWeight ?? 0.55,
     edgeBiasWeight: options.edgeBiasWeight ?? 0.14,
     orientationPenalty: options.orientationPenalty ?? 40,
+    isPairAllowed:
+      options.isPairAllowed ??
+      (() => true),
     evaluatePair: options.evaluatePair,
   };
 
-  const allowed = createAllowedOrientationMatrix(photos, tiles);
+  const allowed = createAllowedOrientationMatrix(
+    photos,
+    tiles,
+    resolved.isPairAllowed,
+  );
   const hardMatch = findPerfectMatching(allowed);
   const strictOrientation = hardMatch !== null;
+
+  if (!strictOrientation) {
+    const relaxedAllowed = photos.map(photo =>
+      tiles.map(tile => resolved.isPairAllowed(photo, tile)),
+    );
+    const relaxedMatch = findPerfectMatching(relaxedAllowed);
+    if (!relaxedMatch) {
+      throw new Error("fillArrange assignment failed: no feasible matching");
+    }
+  }
 
   const cost = buildCostMatrix(photos, tiles, resolved, strictOrientation);
   let photoToTile = solveHungarian(cost);

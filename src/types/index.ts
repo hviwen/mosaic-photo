@@ -148,6 +148,11 @@ export interface CropDecision {
   mode: CropStrategyMode;
   losses: CropLossBreakdown;
   totalCost: number;
+  feasible: boolean;
+  infeasibleReasons: string[];
+  cropLoss: number;
+  cutRequiredRegions: number;
+  aspectOutOfRange: boolean;
 }
 
 export interface PhotoLayoutFeatures {
@@ -158,6 +163,43 @@ export interface PhotoLayoutFeatures {
   extremeLevel: number;
   hasFaces: boolean;
   faceCount: number;
+}
+
+export interface PhotoLayoutConstraint {
+  idealAspect: number;
+  minAspect: number;
+  maxAspect: number;
+  maxCropLoss: number;
+  requiredKeepRegions: CropRect[];
+  preferredCenterWeight: number;
+  isHighRisk: boolean;
+}
+
+export type LayoutSearchMode = "standard" | "extended" | "deep";
+
+export interface LayoutSearchOptions {
+  mode: LayoutSearchMode;
+  allowCanvasResize: boolean;
+  allowLocalRepair: boolean;
+  maxSearchRounds: number;
+}
+
+export interface LayoutQualityThresholds {
+  maxWorstCropLoss: number;
+  maxAverageCropLoss: number;
+  maxPhotosOverCropThreshold: number;
+  requireKeepRegionsFullyVisible: boolean;
+}
+
+export interface LayoutQualitySummary {
+  worstCropLoss: number;
+  averageCropLoss: number;
+  photosOverCropThreshold: number;
+  photosCutRequiredRegions: number;
+  orientationViolations: number;
+  canvasDeltaRatio: number;
+  accepted: boolean;
+  reason?: string;
 }
 
 export interface LayoutMetrics {
@@ -173,6 +215,7 @@ export interface FillArrangeResult {
   canvasW: number;
   canvasH: number;
   metrics: LayoutMetrics;
+  quality?: LayoutQualitySummary;
 }
 
 // Toast 类型

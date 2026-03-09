@@ -1,4 +1,8 @@
-import type { CropRect, CropStrategyMode } from "@/types";
+import type {
+  CropRect,
+  CropStrategyMode,
+  PhotoLayoutConstraint,
+} from "@/types";
 import type { KeepRegion, KeepRegionKind } from "@/types/vision";
 
 export type SmartDetectionKind = KeepRegionKind;
@@ -778,6 +782,66 @@ export function buildRequiredKeepRegions(
   return detections
     .filter(d => (kind ? d.kind === kind : true))
     .map(d => expandBox(d.box, 0.12));
+}
+
+export function buildPhotoLayoutConstraint(params: {
+  imageWidth: number;
+  imageHeight: number;
+  crop: CropRect;
+  detections?: SmartDetection[];
+}): PhotoLayoutConstraint {
+  const { imageWidth, imageHeight, crop, detections = [] } = params;
+  const safeW = Math.max(1, imageWidth);
+  const safeH = Math.max(1, imageHeight);
+  const sourceAspect = safeW / safeH;
+  const cropAspect = Math.max(1e-6, crop.width / Math.max(1e-6, crop.height));
+  const idealAspect = clampSmartCropTargetAspect(cropAspect, safeW, safeH);
+  const imageArea = safeW * safeH;
+  const hasFaces = detections.some(d => d.kind === "face");
+  const hasObjects = detections.some(d => d.kind === "object");
+
+  let minAspect = idealAspect;
+  let maxAspect = idealAspect;
+  let maxCropLoss = 0.12;
+  if (sourceAspect < SMART_CROP_ASPECT_MIN) {
+    minAspect = SMART_CROP_ASPECT_MIN;
+    maxAspect = 1;
+    maxCropLoss = hasFaces ? 0.08 : hasObjects ? 0.1 : 0.11;
+  } else if (sourceAspect > SMART_CROP_ASPECT_MAX) {
+    minAspect = 1;
+    maxAspect = SMART_CROP_ASPECT_MAX;
+    maxCropLoss = hasFaces ? 0.08 : hasObjects ? 0.1 : 0.11;
+  } else {
+    const delta = hasFaces ? 0.12 : hasObjects ? 0.18 : 0.22;
+    minAspect = Math.max(SMART_CROP_ASPECT_MIN, sourceAspect * (1 - delta));
+    maxAspect = Math.min(SMART_CROP_ASPECT_MAX, sourceAspect * (1 + delta));
+    maxCropLoss = hasFaces ? 0.08 : hasObjects ? 0.1 : 0.12;
+  }
+
+  const sizeBias = clamp((Math.log(Math.max(1, imageArea)) - 13) / 3, 0, 1);
+  maxCropLoss = clamp(maxCropLoss - sizeBias * 0.03, 0.06, maxCropLoss);
+
+  const requiredKeepRegions = hasFaces
+    ? buildRequiredKeepRegions(detections, "face")
+    : hasObjects
+      ? buildRequiredKeepRegions(detections, "object")
+      : [];
+
+  const deviation = Math.abs(Math.log(Math.max(1e-6, sourceAspect)));
+  const preferredCenterWeight =
+    clamp(1.35 - Math.min(1, deviation), 0.5, 1.35) *
+    (hasFaces || hasObjects ? 1.15 : 1) *
+    (1 + sizeBias * 0.25);
+
+  return {
+    idealAspect,
+    minAspect: Math.min(minAspect, maxAspect),
+    maxAspect: Math.max(minAspect, maxAspect),
+    maxCropLoss,
+    requiredKeepRegions,
+    preferredCenterWeight,
+    isHighRisk: hasFaces || requiredKeepRegions.length > 0 || sizeBias > 0.45,
+  };
 }
 
 function pickImportantSubset(

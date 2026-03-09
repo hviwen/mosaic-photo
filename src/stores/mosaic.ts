@@ -10,6 +10,8 @@ import type {
   Placement,
   PhotoAdjustments,
   FillArrangeResult,
+  LayoutQualityThresholds,
+  LayoutSearchOptions,
 } from "@/types";
 import { fillArrangePhotos } from "@/composables/useLayout";
 import { clampPhotoToCanvas, clampCrop, clamp, generateId } from "@/utils/math";
@@ -36,6 +38,9 @@ type LayoutWorkerFillArrangeOptions = {
   seed?: number;
   splitRatioMin?: number;
   splitRatioMax?: number;
+  searchOptions?: Partial<LayoutSearchOptions>;
+  qualityThresholds?: Partial<LayoutQualityThresholds>;
+  allowCanvasResize?: boolean;
 };
 
 type LayoutWorkerFillArrangePhotoInput = {
@@ -269,7 +274,9 @@ export const useMosaicStore = defineStore("mosaic", () => {
     return w;
   }
 
-  async function computeFillArrangeInWorker(): Promise<FillArrangeResult | null> {
+  async function computeFillArrangeInWorker(
+    options?: LayoutWorkerFillArrangeOptions,
+  ): Promise<FillArrangeResult | null> {
     if (typeof Worker === "undefined") return null;
     if (photos.value.length === 0) {
       return {
@@ -306,6 +313,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
         photos: inputs,
         canvasW: canvasWidth.value,
         canvasH: canvasHeight.value,
+        options,
       };
       w.postMessage(req);
     });
@@ -847,19 +855,14 @@ export const useMosaicStore = defineStore("mosaic", () => {
     if (photos.value.length === 0) return true;
 
     try {
-      const result = await computeFillArrangeInWorker();
+      const result = await computeFillArrangeInWorker({
+        searchOptions: { mode: "standard" },
+      });
       if (!result) {
         autoLayout();
         return true;
       }
-      if (
-        result.canvasW !== canvasWidth.value ||
-        result.canvasH !== canvasHeight.value
-      ) {
-        canvasWidth.value = result.canvasW;
-        canvasHeight.value = result.canvasH;
-      }
-      applyPlacements(result.placements);
+      applyFillArrangeResult(result);
       return true;
     } catch {
       // Fallback to main thread on any worker error.
@@ -900,6 +903,123 @@ export const useMosaicStore = defineStore("mosaic", () => {
       before,
       after,
     });
+  }
+
+  function applyFillArrangeResult(result: FillArrangeResult) {
+    if (
+      result.canvasW !== canvasWidth.value ||
+      result.canvasH !== canvasHeight.value
+    ) {
+      canvasWidth.value = result.canvasW;
+      canvasHeight.value = result.canvasH;
+    }
+    applyPlacements(result.placements);
+  }
+
+  async function autoLayoutAssess(): Promise<FillArrangeResult | null> {
+    if (photos.value.length === 0) return null;
+
+    try {
+      const result =
+        (await computeFillArrangeInWorker({
+          searchOptions: { mode: "standard" },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        })) ??
+        fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+          searchOptions: { mode: "standard" },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        });
+
+      if (result.quality?.accepted) {
+        applyFillArrangeResult(result);
+      }
+      return result;
+    } catch {
+      const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+        searchOptions: { mode: "standard" },
+        qualityThresholds: {
+          maxWorstCropLoss: 0.12,
+          maxAverageCropLoss: 0.06,
+          maxPhotosOverCropThreshold: 1,
+          requireKeepRegionsFullyVisible: true,
+        },
+        allowCanvasResize: true,
+      });
+      if (result.quality?.accepted) {
+        applyFillArrangeResult(result);
+      }
+      return result;
+    }
+  }
+
+  async function autoLayoutDeepSearchConfirmed(): Promise<FillArrangeResult | null> {
+    if (photos.value.length === 0) return null;
+
+    try {
+      const result =
+        (await computeFillArrangeInWorker({
+          searchOptions: {
+            mode: "deep",
+            allowCanvasResize: true,
+            allowLocalRepair: true,
+            maxSearchRounds: 16,
+          },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        })) ??
+        fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+          searchOptions: {
+            mode: "deep",
+            allowCanvasResize: true,
+            allowLocalRepair: true,
+            maxSearchRounds: 16,
+          },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        });
+      applyFillArrangeResult(result);
+      return result;
+    } catch {
+      const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+        searchOptions: {
+          mode: "deep",
+          allowCanvasResize: true,
+          allowLocalRepair: true,
+          maxSearchRounds: 16,
+        },
+        qualityThresholds: {
+          maxWorstCropLoss: 0.12,
+          maxAverageCropLoss: 0.06,
+          maxPhotosOverCropThreshold: 1,
+          requireKeepRegionsFullyVisible: true,
+        },
+        allowCanvasResize: true,
+      });
+      applyFillArrangeResult(result);
+      return result;
+    }
   }
 
   function applyPlacementsWithHistory(placements: Placement[], label: string) {
@@ -1627,6 +1747,8 @@ export const useMosaicStore = defineStore("mosaic", () => {
     replacePhotoImage,
     autoLayout,
     autoLayoutAsync,
+    autoLayoutAssess,
+    autoLayoutDeepSearchConfirmed,
     autoLayoutWithHistory,
     autoLayoutWithHistoryAsync,
     applyPlacementsWithHistory,
@@ -1663,5 +1785,6 @@ export const useMosaicStore = defineStore("mosaic", () => {
     clearAllPhotos,
     clearAllPhotosWithHistory,
     applyPlacements,
+    applyFillArrangeResult,
   };
 });

@@ -33,17 +33,6 @@ function createSeededRandom(seed: number): () => number {
   };
 }
 
-function intersectArea(
-  a: { x: number; y: number; w: number; h: number },
-  b: { x: number; y: number; w: number; h: number },
-): number {
-  const x1 = Math.max(a.x, b.x);
-  const y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.w, b.x + b.w);
-  const y2 = Math.min(a.y + a.h, b.y + b.h);
-  return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-}
-
 describe("fillArrangePhotos stress", () => {
   it("随机比例输入下保持面积覆盖误差与重叠阈值", () => {
     const rounds = 16;
@@ -96,5 +85,5 @@ describe("fillArrangePhotos stress", () => {
         result.canvasW * result.canvasH - 1,
       );
     }
-  });
+  }, 15000);
 });

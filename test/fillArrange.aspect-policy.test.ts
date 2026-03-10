@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PhotoEntity, Placement } from "@/types";
 import { fillArrangePhotos } from "@/composables/useLayout";
+import { fillArrangePhotosShared } from "@/utils/fillArrangeShared";
 import {
   SMART_CROP_ASPECT_MAX,
   SMART_CROP_ASPECT_MIN,
@@ -62,17 +63,6 @@ function toRect(
     w,
     h,
   };
-}
-
-function intersectArea(
-  a: { x: number; y: number; w: number; h: number },
-  b: { x: number; y: number; w: number; h: number },
-): number {
-  const x1 = Math.max(a.x, b.x);
-  const y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.w, b.x + b.w);
-  const y2 = Math.min(a.y + a.h, b.y + b.h);
-  return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
 }
 
 function oldGreedyAssignment(
@@ -238,5 +228,66 @@ describe("fillArrangePhotos aspect policy", () => {
     // With crop area-loss limiting, the crop aspect may deviate from tile aspect
     // (by design), so a small regression (~10%) vs the greedy baseline is acceptable.
     expect(newLoss).toBeLessThanOrEqual(oldLoss * 1.1 + 1e-6);
+  });
+
+  it("共享实现与主线程实现保持一致", () => {
+    const canvasW = 1400;
+    const canvasH = 1000;
+    const photos = [
+      makePhoto("p1", 900, 1600),
+      makePhoto("p2", 1500, 900),
+      makePhoto("p3", 1200, 1200),
+      makePhoto("p4", 2000, 1100),
+      makePhoto("p5", 900, 1700),
+    ];
+
+    const main = fillArrangePhotos(photos, canvasW, canvasH, { seed: 101 });
+    const shared = fillArrangePhotosShared(
+      photos.map(photo => ({
+        id: photo.id,
+        crop: photo.crop,
+        imageWidth: photo.imageWidth,
+        imageHeight: photo.imageHeight,
+      })),
+      canvasW,
+      canvasH,
+      { seed: 101 },
+    );
+
+    expect(shared.canvasW).toBe(main.canvasW);
+    expect(shared.canvasH).toBe(main.canvasH);
+    expect(shared.placements).toEqual(main.placements);
+  });
+
+  it("大图的平均裁剪率低于小图", () => {
+    const canvasW = 1600;
+    const canvasH = 1000;
+    const photos = [
+      makePhoto("large-1", 2400, 1800),
+      makePhoto("large-2", 2000, 1600),
+      makePhoto("small-1", 800, 800),
+      makePhoto("small-2", 700, 700),
+      makePhoto("small-3", 640, 640),
+      makePhoto("small-4", 720, 720),
+    ];
+
+    const result = fillArrangePhotos(photos, canvasW, canvasH, { seed: 77 });
+    const byId = new Map(photos.map(p => [p.id, p]));
+    const loss = (placement: Placement) => {
+      const src = byId.get(placement.id)!;
+      const crop = placement.crop ?? src.crop;
+      return 1 - (crop.width * crop.height) / (src.crop.width * src.crop.height);
+    };
+
+    const largeAvg =
+      (loss(result.placements.find(p => p.id === "large-1")!) +
+        loss(result.placements.find(p => p.id === "large-2")!)) /
+      2;
+    const smallAvg =
+      ["small-1", "small-2", "small-3", "small-4"]
+        .map(id => loss(result.placements.find(p => p.id === id)!))
+        .reduce((sum, value) => sum + value, 0) / 4;
+
+    expect(largeAvg).toBeLessThanOrEqual(smallAvg + 1e-6);
   });
 });

@@ -144,6 +144,7 @@
     "import": {
       "invalidFiles": "유효한 이미지 파일을 선택하세요 ({types})",
       "importing": "사진 {count}장 가져오는 중...",
+      "heicDecodeFailed": "HEIC 이미지 디코딩에 실패했습니다. 다시 시도하거나 먼저 JPEG/PNG로 변환하세요.",
       "maxPhotos": "최대 150장까지 지원됩니다. 앞의 150장만 선택되었습니다.",
       "partialSuccess": "{added}장 가져옴, {failed}장 실패 (실패 파일 재시도 가능)",
       "success": "사진 {count}장을 가져오고 자동 배치를 완료했습니다",
@@ -152,7 +153,9 @@
     "layout": {
       "calculating": "최적 레이아웃 계산 중...",
       "success": "자동 배치 완료!",
-      "failed": "배치 실패, 다시 시도하세요"
+      "failed": "배치 실패, 다시 시도하세요",
+      "deepSearchPartial": "심화 배치는 완료됐지만 일부 사진은 여전히 많이 잘려 있습니다.",
+      "acceptedBestEffort": "현재 최선의 레이아웃을 적용했습니다."
     },
     "export": {
       "start": "고해상도 모자이크 생성 중...",
@@ -175,6 +178,7 @@
     },
     "replace": {
       "success": "이미지가 교체되었습니다",
+      "heicDecodeFailed": "HEIC 이미지 디코딩에 실패해 교체할 수 없습니다. 다시 시도하거나 먼저 JPEG/PNG로 변환하세요.",
       "failed": "교체 실패, 다시 시도하세요"
     },
     "adjustments": {
@@ -190,7 +194,8 @@
   "dialog": {
     "clearPhotos": "모든 사진을 비우시겠습니까?",
     "clearHistory": "작업 기록을 비우시겠습니까?",
-    "deletePhoto": "이 사진을 삭제하시겠습니까?"
+    "deletePhoto": "이 사진을 삭제하시겠습니까?",
+    "deepLayoutConfirm": "현재 레이아웃은 사진 {count}장이 많이 잘립니다(최대 약 {worst}%). 더 많은 캔버스 크기와 재배치 안을 시도하시겠습니까?"
   },
   "history": {
     "action": {

@@ -19,6 +19,7 @@ export type FillArrangeAssignmentPhoto = FillArrangePhotoStrategy & {
 export type FillArrangeAssignmentTile = {
   aspect: number;
   dist: number;
+  area: number;
 };
 
 export type FillArrangeAssignmentOptions = {
@@ -26,6 +27,14 @@ export type FillArrangeAssignmentOptions = {
   centerBiasWeight?: number;
   edgeBiasWeight?: number;
   orientationPenalty?: number;
+  isPairAllowed?: (
+    photo: FillArrangeAssignmentPhoto,
+    tile: FillArrangeAssignmentTile,
+  ) => boolean;
+  evaluatePair: (
+    photo: FillArrangeAssignmentPhoto,
+    tile: FillArrangeAssignmentTile,
+  ) => number;
 };
 
 const EPS = 1e-6;
@@ -69,9 +78,17 @@ function deviationFromSquare(aspect: number): number {
 function createAllowedOrientationMatrix(
   photos: FillArrangeAssignmentPhoto[],
   tiles: FillArrangeAssignmentTile[],
+  isPairAllowed?: (
+    photo: FillArrangeAssignmentPhoto,
+    tile: FillArrangeAssignmentTile,
+  ) => boolean,
 ): boolean[][] {
   return photos.map(photo =>
-    tiles.map(tile => !isOrientationReversed(photo.orientation, tile.aspect)),
+    tiles.map(
+      tile =>
+        !isOrientationReversed(photo.orientation, tile.aspect) &&
+        (isPairAllowed ? isPairAllowed(photo, tile) : true),
+    ),
   );
 }
 
@@ -123,6 +140,7 @@ function buildCostMatrix(
     const aspectWeight = photo.isExtreme ? 1 : options.nonExtremeWeight;
 
     return tiles.map(tile => {
+      const pairCost = options.evaluatePair(photo, tile);
       const tileAspect = safeAspect(tile.aspect);
       const aspectDelta = Math.abs(Math.log(prefAspect) - Math.log(tileAspect));
       const centerPenalty =
@@ -132,7 +150,13 @@ function buildCostMatrix(
       const orientationPenalty = reversed ? options.orientationPenalty : 0;
       const hardPenalty =
         strictOrientation && reversed ? HARD_ORIENTATION_BLOCK_COST : 0;
-      return aspectWeight * aspectDelta + centerPenalty + orientationPenalty + hardPenalty;
+      return (
+        pairCost +
+        aspectWeight * aspectDelta +
+        centerPenalty +
+        orientationPenalty +
+        hardPenalty
+      );
     });
   });
 
@@ -264,7 +288,7 @@ export function buildFillArrangePhotoStrategy(
 export function assignPhotosToTiles(
   photos: FillArrangeAssignmentPhoto[],
   tiles: FillArrangeAssignmentTile[],
-  options: FillArrangeAssignmentOptions = {},
+  options: FillArrangeAssignmentOptions,
 ): number[] {
   if (photos.length !== tiles.length) {
     throw new Error("fillArrange assignment requires equal photo/tile count");
@@ -277,11 +301,29 @@ export function assignPhotosToTiles(
     centerBiasWeight: options.centerBiasWeight ?? 0.55,
     edgeBiasWeight: options.edgeBiasWeight ?? 0.14,
     orientationPenalty: options.orientationPenalty ?? 40,
+    isPairAllowed:
+      options.isPairAllowed ??
+      (() => true),
+    evaluatePair: options.evaluatePair,
   };
 
-  const allowed = createAllowedOrientationMatrix(photos, tiles);
+  const allowed = createAllowedOrientationMatrix(
+    photos,
+    tiles,
+    resolved.isPairAllowed,
+  );
   const hardMatch = findPerfectMatching(allowed);
   const strictOrientation = hardMatch !== null;
+
+  if (!strictOrientation) {
+    const relaxedAllowed = photos.map(photo =>
+      tiles.map(tile => resolved.isPairAllowed(photo, tile)),
+    );
+    const relaxedMatch = findPerfectMatching(relaxedAllowed);
+    if (!relaxedMatch) {
+      throw new Error("fillArrange assignment failed: no feasible matching");
+    }
+  }
 
   const cost = buildCostMatrix(photos, tiles, resolved, strictOrientation);
   let photoToTile = solveHungarian(cost);

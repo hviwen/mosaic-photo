@@ -144,6 +144,7 @@
     "import": {
       "invalidFiles": "有効な画像ファイルを選択してください（{types}）",
       "importing": "{count} 枚の写真を読み込み中...",
+      "heicDecodeFailed": "HEIC 画像のデコードに失敗しました。再試行するか、先に JPEG/PNG に変換してください。",
       "maxPhotos": "最大 150 枚まで対応しています。先頭 150 枚のみ選択されました。",
       "partialSuccess": "{added} 枚を読み込み、{failed} 枚が失敗しました（失敗ファイルは再選択可能）",
       "success": "{count} 枚の写真を読み込み、自動レイアウトを完了しました",
@@ -152,7 +153,9 @@
     "layout": {
       "calculating": "最適なレイアウトを計算中...",
       "success": "自動レイアウト完了！",
-      "failed": "レイアウトに失敗しました。再試行してください"
+      "failed": "レイアウトに失敗しました。再試行してください",
+      "deepSearchPartial": "深度レイアウトは完了しましたが、一部の写真はまだ大きくトリミングされています。",
+      "acceptedBestEffort": "現在の最善レイアウトを適用しました。"
     },
     "export": {
       "start": "高解像度モザイクを生成中...",
@@ -175,6 +178,7 @@
     },
     "replace": {
       "success": "画像を置換しました",
+      "heicDecodeFailed": "HEIC 画像のデコードに失敗したため置換できませんでした。再試行するか、先に JPEG/PNG に変換してください。",
       "failed": "置換に失敗しました。再試行してください"
     },
     "adjustments": {
@@ -190,7 +194,8 @@
   "dialog": {
     "clearPhotos": "すべての写真をクリアしてもよろしいですか？",
     "clearHistory": "履歴をクリアしてもよろしいですか？",
-    "deletePhoto": "この写真を削除してもよろしいですか？"
+    "deletePhoto": "この写真を削除してもよろしいですか？",
+    "deepLayoutConfirm": "現在のレイアウトでは {count} 枚の写真が大きくトリミングされています（最大約 {worst}%）。より多くのキャンバスサイズと再配置案を試しますか？"
   },
   "history": {
     "action": {

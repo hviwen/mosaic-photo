@@ -490,6 +490,7 @@ import {
 import type { FilterPreset, PhotoAdjustments } from "@/types";
 import { buildPhotoSelectionInfo } from "@/utils/photoSelectionMetrics";
 import { getVisionClient } from "@/vision/visionClient";
+import { isImageImportError } from "@/utils/image";
 import AspectBar from "@/components/AspectBar.vue";
 import {
   CROP_CANCEL_EVENT,
@@ -803,7 +804,11 @@ async function handleReplaceFileChange(e: Event) {
     toast.success(t("toast.replace.success"));
   } catch (err) {
     console.error("Replace failed:", err);
-    toast.error(t("toast.replace.failed"));
+    toast.error(
+      isImageImportError(err, "heic-transcode-failed")
+        ? t("toast.replace.heicDecodeFailed")
+        : t("toast.replace.failed"),
+    );
   } finally {
     isReplacing.value = false;
   }

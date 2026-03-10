@@ -245,7 +245,7 @@ import { useI18n } from 'vue-i18n'
 import { useMosaicStore } from '@/stores/mosaic'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
-import { isValidImageFile } from '@/utils/image'
+import { isImageImportError, isValidImageFile } from '@/utils/image'
 import type { ExportFormat, ExportResolutionPreset } from '@/types'
 import PhotoList from './PhotoList.vue'
 
@@ -333,7 +333,11 @@ async function handleFiles(files: File[]) {
     }
   } catch (err) {
     console.error('Import failed:', err)
-    toast.error(t('toast.import.failed'))
+    toast.error(
+      isImageImportError(err, 'heic-transcode-failed')
+        ? t('toast.import.heicDecodeFailed')
+        : t('toast.import.failed')
+    )
   }
   isImporting.value = false
   selectedFiles.value = []
@@ -360,8 +364,32 @@ async function handleArrange() {
   await new Promise(resolve => setTimeout(resolve, 50))
 
   try {
-    await store.autoLayoutWithHistoryAsync(t('history.action.autoLayout'))
-    toast.success(t('toast.layout.success'))
+    const assessed = await store.autoLayoutAssess()
+    if (!assessed) return
+
+    if (assessed.quality?.accepted) {
+      toast.success(t('toast.layout.success'))
+      return
+    }
+
+    const confirmed = confirm(
+      t('dialog.deepLayoutConfirm', {
+        worst: Math.round((assessed.quality?.worstCropLoss ?? 0) * 100),
+        count: assessed.quality?.photosOverCropThreshold ?? 0,
+      })
+    )
+
+    if (confirmed) {
+      const result = await store.autoLayoutDeepSearchConfirmed()
+      if (result?.quality?.accepted) {
+        toast.success(t('toast.layout.success'))
+      } else {
+        toast.warning(t('toast.layout.deepSearchPartial'))
+      }
+    } else {
+      store.applyFillArrangeResult(assessed)
+      toast.warning(t('toast.layout.acceptedBestEffort'))
+    }
   } catch (err) {
     console.error('Arrange failed:', err)
     toast.error(t('toast.layout.failed'))

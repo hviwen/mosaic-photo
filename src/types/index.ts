@@ -128,6 +128,96 @@ export interface Placement {
   tileRect?: { x: number; y: number; w: number; h: number };
 }
 
+export type CropStrategyMode =
+  | "face-priority"
+  | "object-priority"
+  | "center";
+
+export interface CropLossBreakdown {
+  orientationViolation: boolean;
+  faceCutPenalty: number;
+  largePhotoCropPenalty: number;
+  aspectDeviationPenalty: number;
+  centerPreference: number;
+  cropAreaLoss: number;
+  cropBudget: number;
+}
+
+export interface CropDecision {
+  crop: CropRect;
+  mode: CropStrategyMode;
+  losses: CropLossBreakdown;
+  totalCost: number;
+  feasible: boolean;
+  infeasibleReasons: string[];
+  cropLoss: number;
+  cutRequiredRegions: number;
+  aspectOutOfRange: boolean;
+}
+
+export interface PhotoLayoutFeatures {
+  id: string;
+  sourceAspect: number;
+  preferredAspect: number;
+  sizeWeight: number;
+  extremeLevel: number;
+  hasFaces: boolean;
+  faceCount: number;
+}
+
+export interface PhotoLayoutConstraint {
+  idealAspect: number;
+  minAspect: number;
+  maxAspect: number;
+  maxCropLoss: number;
+  requiredKeepRegions: CropRect[];
+  preferredCenterWeight: number;
+  isHighRisk: boolean;
+}
+
+export type LayoutSearchMode = "standard" | "extended" | "deep";
+
+export interface LayoutSearchOptions {
+  mode: LayoutSearchMode;
+  allowCanvasResize: boolean;
+  allowLocalRepair: boolean;
+  maxSearchRounds: number;
+}
+
+export interface LayoutQualityThresholds {
+  maxWorstCropLoss: number;
+  maxAverageCropLoss: number;
+  maxPhotosOverCropThreshold: number;
+  requireKeepRegionsFullyVisible: boolean;
+}
+
+export interface LayoutQualitySummary {
+  worstCropLoss: number;
+  averageCropLoss: number;
+  photosOverCropThreshold: number;
+  photosCutRequiredRegions: number;
+  orientationViolations: number;
+  canvasDeltaRatio: number;
+  accepted: boolean;
+  reason?: string;
+}
+
+export interface LayoutMetrics {
+  evaluatedPairs: number;
+  cacheHits: number;
+  cacheMisses: number;
+  orientationViolations: number;
+  canvasAdjustmentsTried: number;
+}
+
+export interface FillArrangeResult {
+  placements: Placement[];
+  canvasW: number;
+  canvasH: number;
+  metrics: LayoutMetrics;
+  quality?: LayoutQualitySummary;
+}
+
 // Toast 类型
 export type ToastType = "success" | "error" | "info" | "warning";
 

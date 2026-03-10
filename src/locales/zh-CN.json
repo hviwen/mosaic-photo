@@ -144,6 +144,7 @@
     "import": {
       "invalidFiles": "请选择有效的图片文件（{types}）",
       "importing": "正在导入 {count} 张照片...",
+      "heicDecodeFailed": "HEIC 图片解码失败，请重试或先转换为 JPEG/PNG",
       "maxPhotos": "最多支持导入 150 张照片，已自动选择前 150 张",
       "partialSuccess": "已导入 {added} 张，失败 {failed} 张（可尝试重新选择失败文件）",
       "success": "已导入 {count} 张照片，并完成自动排版",
@@ -152,7 +153,9 @@
     "layout": {
       "calculating": "正在计算最佳布局...",
       "success": "自动排列完成！",
-      "failed": "排列失败，请重试"
+      "failed": "排列失败，请重试",
+      "deepSearchPartial": "已完成深度重排，但仍有少量照片存在明显裁剪",
+      "acceptedBestEffort": "已应用当前最佳方案"
     },
     "export": {
       "start": "正在生成高清拼图...",
@@ -175,6 +178,7 @@
     },
     "replace": {
       "success": "图片已替换",
+      "heicDecodeFailed": "HEIC 图片解码失败，无法替换，请重试或先转换为 JPEG/PNG",
       "failed": "替换失败，请重试"
     },
     "adjustments": {
@@ -190,7 +194,8 @@
   "dialog": {
     "clearPhotos": "确定要清空所有照片吗？",
     "clearHistory": "确定要清空操作历史吗？",
-    "deletePhoto": "确定要删除这张照片吗？"
+    "deletePhoto": "确定要删除这张照片吗？",
+    "deepLayoutConfirm": "当前方案仍有 {count} 张照片裁剪较重（最严重约 {worst}%）。是否允许系统尝试更多画布尺寸和重排方案？"
   },
   "history": {
     "action": {

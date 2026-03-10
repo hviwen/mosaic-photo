@@ -9,6 +9,9 @@ import type {
   AppMode,
   Placement,
   PhotoAdjustments,
+  FillArrangeResult,
+  LayoutQualityThresholds,
+  LayoutSearchOptions,
 } from "@/types";
 import { fillArrangePhotos } from "@/composables/useLayout";
 import { clampPhotoToCanvas, clampCrop, clamp, generateId } from "@/utils/math";
@@ -17,6 +20,7 @@ import {
   createPreviewUrlFromImageSource,
   createPhotoFromFile,
   isHeicFile,
+  normalizeImageFileForImport,
 } from "@/utils/image";
 import { createAssetId, putAsset } from "@/project/assets";
 import type { ProjectAssetMeta } from "@/project/schema";
@@ -34,6 +38,9 @@ type LayoutWorkerFillArrangeOptions = {
   seed?: number;
   splitRatioMin?: number;
   splitRatioMax?: number;
+  searchOptions?: Partial<LayoutSearchOptions>;
+  qualityThresholds?: Partial<LayoutQualityThresholds>;
+  allowCanvasResize?: boolean;
 };
 
 type LayoutWorkerFillArrangePhotoInput = {
@@ -54,7 +61,7 @@ type LayoutWorkerFillArrangeRequest = {
 };
 
 type LayoutWorkerFillArrangeResponse =
-  | { id: number; ok: true; placements: Placement[] }
+  | { id: number; ok: true; result: FillArrangeResult }
   | { id: number; ok: false; error: string };
 
 const PRESETS: CanvasPreset[] = [
@@ -176,6 +183,12 @@ export const useMosaicStore = defineStore("mosaic", () => {
   const isExporting = ref<boolean>(false);
   const mode = ref<AppMode>({ kind: "idle" });
 
+  function cropAreaLoss(source: CropRect, target: CropRect): number {
+    const sourceArea = Math.max(1, source.width * source.height);
+    const targetArea = Math.max(1, target.width * target.height);
+    return Math.max(0, 1 - targetArea / sourceArea);
+  }
+
   // 智能裁剪检测结果到达后，尽可能只更新 layoutCrop（不改变位置/缩放），避免“跳动”
   onSmartDetectionsChanged(photoId => {
     if (mode.value.kind !== "idle") return;
@@ -195,7 +208,12 @@ export const useMosaicStore = defineStore("mosaic", () => {
       photo.imageHeight,
       detections && detections.length > 0 ? { detections } : undefined,
     );
-    photo.layoutCrop = clampCrop(next, photo.imageWidth, photo.imageHeight);
+    const nextLayoutCrop = clampCrop(next, photo.imageWidth, photo.imageHeight);
+    const currentLoss = cropAreaLoss(photo.crop, photo.layoutCrop);
+    const nextLoss = cropAreaLoss(photo.crop, nextLayoutCrop);
+    const gain = currentLoss - nextLoss;
+    if (gain < 0.015) return;
+    photo.layoutCrop = nextLayoutCrop;
 
     // 同步更新 scale，确保 layoutCrop.width * scale === tileW（消除重叠/缝隙）
     if (photo.layoutCrop.width > 0) {
@@ -212,7 +230,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
   let layoutWorkerReqId = 0;
   const layoutWorkerPending = new Map<
     number,
-    { resolve: (placements: Placement[]) => void; reject: (err: Error) => void }
+    {
+      resolve: (result: FillArrangeResult) => void;
+      reject: (err: Error) => void;
+    }
   >();
 
   function rejectAllLayoutWorkerPending(err: Error) {
@@ -237,7 +258,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       const pending = layoutWorkerPending.get(msg.id);
       if (!pending) return;
       layoutWorkerPending.delete(msg.id);
-      if (msg.ok) pending.resolve(msg.placements);
+      if (msg.ok) pending.resolve(msg.result);
       else pending.reject(new Error(msg.error));
     };
     w.onerror = () => {
@@ -253,9 +274,24 @@ export const useMosaicStore = defineStore("mosaic", () => {
     return w;
   }
 
-  async function computeFillArrangeInWorker(): Promise<Placement[] | null> {
+  async function computeFillArrangeInWorker(
+    options?: LayoutWorkerFillArrangeOptions,
+  ): Promise<FillArrangeResult | null> {
     if (typeof Worker === "undefined") return null;
-    if (photos.value.length === 0) return [];
+    if (photos.value.length === 0) {
+      return {
+        placements: [],
+        canvasW: canvasWidth.value,
+        canvasH: canvasHeight.value,
+        metrics: {
+          evaluatedPairs: 0,
+          cacheHits: 0,
+          cacheMisses: 0,
+          orientationViolations: 0,
+          canvasAdjustmentsTried: 1,
+        },
+      };
+    }
 
     const photoIdsSnapshot = photos.value.map(p => p.id).join("|");
     const inputs: LayoutWorkerFillArrangePhotoInput[] = photos.value.map(p => ({
@@ -269,7 +305,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     const requestId = ++layoutWorkerReqId;
     const w = getLayoutWorker();
 
-    const placements = await new Promise<Placement[]>((resolve, reject) => {
+    const result = await new Promise<FillArrangeResult>((resolve, reject) => {
       layoutWorkerPending.set(requestId, { resolve, reject });
       const req: LayoutWorkerFillArrangeRequest = {
         id: requestId,
@@ -277,6 +313,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
         photos: inputs,
         canvasW: canvasWidth.value,
         canvasH: canvasHeight.value,
+        options,
       };
       w.postMessage(req);
     });
@@ -284,7 +321,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     // Avoid applying stale results if photo list changed mid-flight.
     const photoIdsNow = photos.value.map(p => p.id).join("|");
     if (photoIdsNow !== photoIdsSnapshot) return null;
-    return placements;
+    return result;
   }
 
   // Computed
@@ -818,12 +855,14 @@ export const useMosaicStore = defineStore("mosaic", () => {
     if (photos.value.length === 0) return true;
 
     try {
-      const placements = await computeFillArrangeInWorker();
-      if (!placements) {
+      const result = await computeFillArrangeInWorker({
+        searchOptions: { mode: "standard" },
+      });
+      if (!result) {
         autoLayout();
         return true;
       }
-      applyPlacements(placements);
+      applyFillArrangeResult(result);
       return true;
     } catch {
       // Fallback to main thread on any worker error.
@@ -864,6 +903,123 @@ export const useMosaicStore = defineStore("mosaic", () => {
       before,
       after,
     });
+  }
+
+  function applyFillArrangeResult(result: FillArrangeResult) {
+    if (
+      result.canvasW !== canvasWidth.value ||
+      result.canvasH !== canvasHeight.value
+    ) {
+      canvasWidth.value = result.canvasW;
+      canvasHeight.value = result.canvasH;
+    }
+    applyPlacements(result.placements);
+  }
+
+  async function autoLayoutAssess(): Promise<FillArrangeResult | null> {
+    if (photos.value.length === 0) return null;
+
+    try {
+      const result =
+        (await computeFillArrangeInWorker({
+          searchOptions: { mode: "standard" },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        })) ??
+        fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+          searchOptions: { mode: "standard" },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        });
+
+      if (result.quality?.accepted) {
+        applyFillArrangeResult(result);
+      }
+      return result;
+    } catch {
+      const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+        searchOptions: { mode: "standard" },
+        qualityThresholds: {
+          maxWorstCropLoss: 0.12,
+          maxAverageCropLoss: 0.06,
+          maxPhotosOverCropThreshold: 1,
+          requireKeepRegionsFullyVisible: true,
+        },
+        allowCanvasResize: true,
+      });
+      if (result.quality?.accepted) {
+        applyFillArrangeResult(result);
+      }
+      return result;
+    }
+  }
+
+  async function autoLayoutDeepSearchConfirmed(): Promise<FillArrangeResult | null> {
+    if (photos.value.length === 0) return null;
+
+    try {
+      const result =
+        (await computeFillArrangeInWorker({
+          searchOptions: {
+            mode: "deep",
+            allowCanvasResize: true,
+            allowLocalRepair: true,
+            maxSearchRounds: 16,
+          },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        })) ??
+        fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+          searchOptions: {
+            mode: "deep",
+            allowCanvasResize: true,
+            allowLocalRepair: true,
+            maxSearchRounds: 16,
+          },
+          qualityThresholds: {
+            maxWorstCropLoss: 0.12,
+            maxAverageCropLoss: 0.06,
+            maxPhotosOverCropThreshold: 1,
+            requireKeepRegionsFullyVisible: true,
+          },
+          allowCanvasResize: true,
+        });
+      applyFillArrangeResult(result);
+      return result;
+    } catch {
+      const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+        searchOptions: {
+          mode: "deep",
+          allowCanvasResize: true,
+          allowLocalRepair: true,
+          maxSearchRounds: 16,
+        },
+        qualityThresholds: {
+          maxWorstCropLoss: 0.12,
+          maxAverageCropLoss: 0.06,
+          maxPhotosOverCropThreshold: 1,
+          requireKeepRegionsFullyVisible: true,
+        },
+        allowCanvasResize: true,
+      });
+      applyFillArrangeResult(result);
+      return result;
+    }
   }
 
   function applyPlacementsWithHistory(placements: Placement[], label: string) {
@@ -1018,6 +1174,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     let done = 0;
     let added = 0;
     let failed = 0;
+    let firstError: unknown = null;
 
     const runOne = async (file: File) => {
       const photoId = generateId();
@@ -1039,6 +1196,16 @@ export const useMosaicStore = defineStore("mosaic", () => {
       }
 
       let photo: PhotoEntity | null = null;
+      let normalizedFile = file;
+
+      try {
+        normalizedFile = (await normalizeImageFileForImport(file)).file;
+      } catch (e) {
+        if (!firstError) firstError = e;
+        failed++;
+        console.warn("Import normalization failed:", file.name, e);
+        return;
+      }
 
       // 优先走 vision worker；失败则自动降级到主线程导入（native face + saliency）
       if (vision.isEnabled()) {
@@ -1046,7 +1213,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
           console.log("[FaceDebug] Using vision worker for photo:", photoId);
           const res = await vision.processFile({
             photoId,
-            file,
+            file: normalizedFile,
             previewMaxEdge,
           });
           const srcUrl = isHeicFile(file)
@@ -1054,8 +1221,8 @@ export const useMosaicStore = defineStore("mosaic", () => {
                 res.previewBitmap,
                 res.previewWidth,
                 res.previewHeight,
-              ).catch(() => URL.createObjectURL(file))
-            : URL.createObjectURL(file);
+              ).catch(() => URL.createObjectURL(normalizedFile))
+            : URL.createObjectURL(normalizedFile);
 
           const fullCrop: CropRect = {
             x: 0,
@@ -1121,7 +1288,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       if (!photo) {
         try {
           const fallback = await createPhotoFromFile(
-            file,
+            normalizedFile,
             canvasWidth.value,
             canvasHeight.value,
             {
@@ -1130,9 +1297,11 @@ export const useMosaicStore = defineStore("mosaic", () => {
               maxImageEdge: previewMaxEdge,
             },
           );
+          fallback.name = file.name;
           fallback.assetId = assetId ?? undefined;
           photo = fallback;
         } catch (e) {
+          if (!firstError) firstError = e;
           failed++;
           console.warn("Import failed:", file.name, e);
           return;
@@ -1157,6 +1326,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
     }
 
     await Promise.all(executing);
+
+    if (added === 0 && failed > 0 && firstError instanceof Error) {
+      throw firstError;
+    }
 
     // 导入完成后统一自动排版（全量重排，避免重叠/集中/空白）
     await autoLayoutAsync();
@@ -1197,8 +1370,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
       console.warn("Failed to persist replacement asset:", e);
     }
 
+    const normalizedFile = (await normalizeImageFileForImport(file)).file;
+
     const loaded = await createPhotoFromFile(
-      file,
+      normalizedFile,
       canvasWidth.value,
       canvasHeight.value,
       { id },
@@ -1572,6 +1747,8 @@ export const useMosaicStore = defineStore("mosaic", () => {
     replacePhotoImage,
     autoLayout,
     autoLayoutAsync,
+    autoLayoutAssess,
+    autoLayoutDeepSearchConfirmed,
     autoLayoutWithHistory,
     autoLayoutWithHistoryAsync,
     applyPlacementsWithHistory,
@@ -1608,5 +1785,6 @@ export const useMosaicStore = defineStore("mosaic", () => {
     clearAllPhotos,
     clearAllPhotosWithHistory,
     applyPlacements,
+    applyFillArrangeResult,
   };
 });

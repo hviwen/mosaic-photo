@@ -67,6 +67,19 @@ export function getDrawHalfSize(photo: PhotoEntity, cropOverride?: CropRect): { 
 }
 
 /**
+ * 获取照片在画布上实际可见的半尺寸。
+ * 铺满布局下照片可能以 cover 方式超出 tile，交互应优先贴合 tile 可见区域。
+ */
+export function getVisibleDrawHalfSize(photo: PhotoEntity, cropOverride?: CropRect): { hw: number; hh: number } {
+  const draw = getDrawHalfSize(photo, cropOverride)
+  if (!photo.tileRect) return draw
+  return {
+    hw: Math.min(draw.hw, photo.tileRect.w / 2),
+    hh: Math.min(draw.hh, photo.tileRect.h / 2),
+  }
+}
+
+/**
  * 限制裁剪区域
  */
 export function clampCrop(crop: CropRect, imageWidth: number, imageHeight: number): CropRect {
@@ -165,7 +178,7 @@ export function pointInPhoto(photo: PhotoEntity, x: number, y: number): boolean 
   const dx = x - photo.cx
   const dy = y - photo.cy
   const local = inverseRotatePoint(dx, dy, photo.rotation)
-  const { hw, hh } = getDrawHalfSize(photo)
+  const { hw, hh } = getVisibleDrawHalfSize(photo)
   return Math.abs(local.x) <= hw && Math.abs(local.y) <= hh
 }
 

@@ -153,6 +153,8 @@ export interface CropDecision {
   cropLoss: number;
   cutRequiredRegions: number;
   aspectOutOfRange: boolean;
+  softBudgetExceeded: boolean;
+  orientationClassMismatch: boolean;
 }
 
 export interface PhotoLayoutFeatures {
@@ -170,6 +172,9 @@ export interface PhotoLayoutConstraint {
   minAspect: number;
   maxAspect: number;
   maxCropLoss: number;
+  softCropBudget: number;
+  sizeRankWeight: number;
+  orientationClass: "portrait" | "landscape" | "square";
   requiredKeepRegions: CropRect[];
   preferredCenterWeight: number;
   isHighRisk: boolean;
@@ -194,10 +199,14 @@ export interface LayoutQualityThresholds {
 export interface LayoutQualitySummary {
   worstCropLoss: number;
   averageCropLoss: number;
+  photosOverSoftCropThreshold: number;
   photosOverCropThreshold: number;
   photosCutRequiredRegions: number;
   orientationViolations: number;
   canvasDeltaRatio: number;
+  softCropThreshold: number;
+  worstCropPhotoId?: string;
+  worstCropTileAspect?: number;
   accepted: boolean;
   reason?: string;
 }

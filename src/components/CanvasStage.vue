@@ -160,6 +160,7 @@ import {
   clamp,
   inverseRotatePoint,
   getDrawHalfSize,
+  getVisibleDrawHalfSize,
   pointInPhoto,
 } from "@/utils/math";
 import { buildCanvasFilter } from "@/utils/filters";
@@ -1325,7 +1326,7 @@ function drawSelection(c: CanvasRenderingContext2D, photo: PhotoEntity) {
   c.translate(photo.cx, photo.cy);
   c.rotate(photo.rotation);
 
-  const { hw, hh } = getDrawHalfSize(photo);
+  const { hw, hh } = getVisibleDrawHalfSize(photo);
 
   // 绘制边框（不再绘制控制点手柄）
   c.strokeStyle = "#6366f1";

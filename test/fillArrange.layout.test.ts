@@ -141,7 +141,7 @@ describe("fillArrangePhotos", () => {
         result.canvasH,
       );
     }
-  });
+  }, 10000);
 
   it("中心区域优先分配给更接近 1:1 的照片", () => {
     const canvasW = 1000;

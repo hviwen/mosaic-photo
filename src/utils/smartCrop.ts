@@ -803,23 +803,32 @@ export function buildPhotoLayoutConstraint(params: {
   let minAspect = idealAspect;
   let maxAspect = idealAspect;
   let maxCropLoss = 0.12;
+  let softCropBudget = 0.08;
   if (sourceAspect < SMART_CROP_ASPECT_MIN) {
     minAspect = SMART_CROP_ASPECT_MIN;
     maxAspect = 1;
     maxCropLoss = hasFaces ? 0.08 : hasObjects ? 0.1 : 0.11;
+    softCropBudget = hasFaces ? 0.06 : hasObjects ? 0.07 : 0.08;
   } else if (sourceAspect > SMART_CROP_ASPECT_MAX) {
     minAspect = 1;
     maxAspect = SMART_CROP_ASPECT_MAX;
     maxCropLoss = hasFaces ? 0.08 : hasObjects ? 0.1 : 0.11;
+    softCropBudget = hasFaces ? 0.06 : hasObjects ? 0.07 : 0.08;
   } else {
     const delta = hasFaces ? 0.12 : hasObjects ? 0.18 : 0.22;
     minAspect = Math.max(SMART_CROP_ASPECT_MIN, sourceAspect * (1 - delta));
     maxAspect = Math.min(SMART_CROP_ASPECT_MAX, sourceAspect * (1 + delta));
     maxCropLoss = hasFaces ? 0.08 : hasObjects ? 0.1 : 0.12;
+    softCropBudget = hasFaces ? 0.05 : hasObjects ? 0.07 : 0.08;
   }
 
   const sizeBias = clamp((Math.log(Math.max(1, imageArea)) - 13) / 3, 0, 1);
   maxCropLoss = clamp(maxCropLoss - sizeBias * 0.03, 0.06, maxCropLoss);
+  softCropBudget = clamp(
+    Math.min(softCropBudget, maxCropLoss) - sizeBias * 0.02,
+    0.04,
+    maxCropLoss,
+  );
 
   const requiredKeepRegions = hasFaces
     ? buildRequiredKeepRegions(detections, "face")
@@ -838,6 +847,10 @@ export function buildPhotoLayoutConstraint(params: {
     minAspect: Math.min(minAspect, maxAspect),
     maxAspect: Math.max(minAspect, maxAspect),
     maxCropLoss,
+    softCropBudget,
+    sizeRankWeight: 0,
+    orientationClass:
+      idealAspect > 1.08 ? "landscape" : idealAspect < 0.92 ? "portrait" : "square",
     requiredKeepRegions,
     preferredCenterWeight,
     isHighRisk: hasFaces || requiredKeepRegions.length > 0 || sizeBias > 0.45,

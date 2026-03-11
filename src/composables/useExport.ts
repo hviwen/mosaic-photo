@@ -35,10 +35,20 @@ export interface ExportOptions {
 
 async function blobToImageBitmap(
   blob: Blob,
-): Promise<ImageBitmap | HTMLImageElement> {
+): Promise<{ source: ImageBitmap | HTMLImageElement; cleanup?: () => void }> {
   if (typeof createImageBitmap === "function") {
     try {
-      return await createImageBitmap(blob);
+      const bitmap = await createImageBitmap(blob);
+      return {
+        source: bitmap,
+        cleanup: () => {
+          try {
+            bitmap.close();
+          } catch {
+            // ignore
+          }
+        },
+      };
     } catch {
       // fallthrough
     }
@@ -50,9 +60,15 @@ async function blobToImageBitmap(
     img.decoding = "async";
     img.src = url;
     await img.decode();
-    return img;
-  } finally {
+    return {
+      source: img,
+      cleanup: () => {
+        URL.revokeObjectURL(url);
+      },
+    };
+  } catch (error) {
     URL.revokeObjectURL(url);
+    throw error;
   }
 }
 
@@ -156,17 +172,25 @@ export async function exportMosaicWithOptions(
     let source: CanvasImageSource = photo.image;
     let srcScaleX = 1;
     let srcScaleY = 1;
+    let cleanupSource: (() => void) | undefined;
 
     if (qualityMode === "original" && photo.assetId) {
       const blob = await getAssetBlob(photo.assetId);
       if (blob) {
-        const bmpOrImg = await blobToImageBitmap(blob);
-        source = bmpOrImg as any;
+        try {
+          const resolved = await blobToImageBitmap(blob);
+          source = resolved.source as CanvasImageSource;
+          cleanupSource = resolved.cleanup;
 
-        const sw = photo.sourceWidth ?? photo.imageWidth;
-        const sh = photo.sourceHeight ?? photo.imageHeight;
-        srcScaleX = sw / Math.max(1, photo.imageWidth);
-        srcScaleY = sh / Math.max(1, photo.imageHeight);
+          const sw = photo.sourceWidth ?? photo.imageWidth;
+          const sh = photo.sourceHeight ?? photo.imageHeight;
+          srcScaleX = sw / Math.max(1, photo.imageWidth);
+          srcScaleY = sh / Math.max(1, photo.imageHeight);
+        } catch {
+          source = photo.image;
+          srcScaleX = 1;
+          srcScaleY = 1;
+        }
       }
     }
 
@@ -194,18 +218,31 @@ export async function exportMosaicWithOptions(
     const sWidth = crop.width * srcScaleX;
     const sHeight = crop.height * srcScaleY;
 
-    ctx.drawImage(source, sx, sy, sWidth, sHeight, -hw, -hh, hw * 2, hh * 2);
+    try {
+      ctx.drawImage(source, sx, sy, sWidth, sHeight, -hw, -hh, hw * 2, hh * 2);
+    } catch (error) {
+      if (source === photo.image) {
+        throw error;
+      }
+      source = photo.image;
+      srcScaleX = 1;
+      srcScaleY = 1;
+      ctx.drawImage(
+        source,
+        crop.x * srcScaleX,
+        crop.y * srcScaleY,
+        crop.width * srcScaleX,
+        crop.height * srcScaleY,
+        -hw,
+        -hh,
+        hw * 2,
+        hh * 2,
+      );
+    }
 
     ctx.restore();
 
-    // Free bitmap resources when possible
-    if (typeof (source as any)?.close === "function") {
-      try {
-        (source as any).close();
-      } catch {
-        // ignore
-      }
-    }
+    cleanupSource?.();
   }
 
   opts.onProgress?.({ done: total, total, label: translate("export.progress.encoding") });

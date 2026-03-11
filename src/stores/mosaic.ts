@@ -379,6 +379,26 @@ export const useMosaicStore = defineStore("mosaic", () => {
     return { x: crop.x, y: crop.y, width: crop.width, height: crop.height };
   }
 
+  function resolveVisibleTileCrop(photo: PhotoEntity, crop: CropRect): CropRect {
+    if (!photo.tileRect || !isFinite(photo.scale) || photo.scale <= 1e-6) {
+      return snapshotCropRect(crop);
+    }
+
+    const visibleWidth = clamp(photo.tileRect.w / photo.scale, 1, crop.width);
+    const visibleHeight = clamp(photo.tileRect.h / photo.scale, 1, crop.height);
+
+    return clampCrop(
+      {
+        x: crop.x + (crop.width - visibleWidth) / 2,
+        y: crop.y + (crop.height - visibleHeight) / 2,
+        width: visibleWidth,
+        height: visibleHeight,
+      },
+      photo.imageWidth,
+      photo.imageHeight,
+    );
+  }
+
   function snapshotAdjustments(a: PhotoAdjustments): PhotoAdjustments {
     return {
       brightness: a.brightness,
@@ -1095,8 +1115,16 @@ export const useMosaicStore = defineStore("mosaic", () => {
       }
     }
 
-    photo.crop = clampCrop(crop, photo.imageWidth, photo.imageHeight);
-    photo.layoutCrop = undefined;
+    const nextCrop = clampCrop(crop, photo.imageWidth, photo.imageHeight);
+    const shouldUpdateLayoutCrop =
+      !!photo.tileRect || !!cropModeSnapshot.value?.layoutCrop;
+
+    if (shouldUpdateLayoutCrop) {
+      photo.layoutCrop = nextCrop;
+    } else {
+      photo.crop = nextCrop;
+      photo.layoutCrop = undefined;
+    }
     // 补偿 scale，保持图片显示尺寸不变
     if (
       compensatedScale != null &&
@@ -1540,8 +1568,8 @@ export const useMosaicStore = defineStore("mosaic", () => {
   }
 
   /**
-   * 进入裁剪模式时，先把显示裁剪重置为全图，便于用户从原图开始自定义裁剪。
-   * 取消裁剪时会恢复进入前的 crop / layoutCrop。
+   * 进入裁剪模式时保留当前 crop / layoutCrop，仅记录快照与参考框。
+   * 这样铺满布局下的 tile 窗口不会跳变，裁剪移动始终围绕当前 tile 进行。
    */
   function enterCropMode(id: string) {
     const photo = photos.value.find(p => p.id === id);
@@ -1558,13 +1586,6 @@ export const useMosaicStore = defineStore("mosaic", () => {
         ? snapshotCropRect(photo.layoutCrop)
         : undefined,
     };
-    photo.crop = {
-      x: 0,
-      y: 0,
-      width: photo.imageWidth,
-      height: photo.imageHeight,
-    };
-    photo.layoutCrop = undefined;
     cropModePhotoId.value = id;
     selectedPhotoId.value = id;
   }
@@ -1575,24 +1596,6 @@ export const useMosaicStore = defineStore("mosaic", () => {
   }
 
   function cancelCropMode() {
-    const snap = cropModeSnapshot.value;
-    if (snap) {
-      const photo = photos.value.find(p => p.id === snap.photoId);
-      if (photo) {
-        photo.crop = clampCrop(
-          snapshotCropRect(snap.crop),
-          photo.imageWidth,
-          photo.imageHeight,
-        );
-        photo.layoutCrop = snap.layoutCrop
-          ? clampCrop(
-              snapshotCropRect(snap.layoutCrop),
-              photo.imageWidth,
-              photo.imageHeight,
-            )
-          : undefined;
-      }
-    }
     cropModeSnapshot.value = null;
     cropModePhotoId.value = null;
   }
@@ -1603,7 +1606,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
   function getCropModeReferenceCrop(id: string): CropRect | null {
     const snap = cropModeSnapshot.value;
     if (!snap || snap.photoId !== id) return null;
-    return snapshotCropRect(snap.layoutCrop ?? snap.crop);
+    const photo = photos.value.find(p => p.id === id);
+    const baseCrop = snapshotCropRect(snap.layoutCrop ?? snap.crop);
+    if (!photo?.tileRect) return baseCrop;
+    return resolveVisibleTileCrop(photo, baseCrop);
   }
 
   function setCropMode(id: string | null) {

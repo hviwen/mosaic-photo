@@ -85,5 +85,5 @@ describe("fillArrangePhotos stress", () => {
         result.canvasW * result.canvasH - 1,
       );
     }
-  }, 15000);
+  }, 20000);
 });

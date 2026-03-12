@@ -181,12 +181,17 @@ export interface PhotoLayoutConstraint {
 }
 
 export type LayoutSearchMode = "standard" | "extended" | "deep";
+export type LayoutSearchIntent =
+  | "auto-import"
+  | "manual-assess"
+  | "confirmed-relayout";
 
 export interface LayoutSearchOptions {
   mode: LayoutSearchMode;
   allowCanvasResize: boolean;
   allowLocalRepair: boolean;
   maxSearchRounds: number;
+  intent?: LayoutSearchIntent;
 }
 
 export interface LayoutQualityThresholds {
@@ -199,6 +204,7 @@ export interface LayoutQualityThresholds {
 export interface LayoutQualitySummary {
   worstCropLoss: number;
   averageCropLoss: number;
+  sizeWeightedAverageCropLoss: number;
   photosOverSoftCropThreshold: number;
   photosOverCropThreshold: number;
   photosCutRequiredRegions: number;
@@ -217,6 +223,10 @@ export interface LayoutMetrics {
   cacheMisses: number;
   orientationViolations: number;
   canvasAdjustmentsTried: number;
+  elasticTrials: number;
+  elasticAccepted: number;
+  localRetileAccepted: number;
+  continuousRefinements: number;
 }
 
 export interface FillArrangeResult {

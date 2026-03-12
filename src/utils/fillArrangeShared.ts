@@ -4,6 +4,7 @@ import type {
   FillArrangeResult,
   LayoutMetrics,
   LayoutQualitySummary,
+  LayoutSearchIntent,
   LayoutQualityThresholds,
   LayoutSearchMode,
   LayoutSearchOptions,
@@ -46,9 +47,10 @@ export type FillArrangePhotoInput = {
 };
 
 type FillRect = { x: number; y: number; w: number; h: number };
-type OrderedTile = { tile: FillRect; dist: number };
+type OrderedTile = { tile: FillRect; dist: number; leafId: string };
 type SearchStage = "strict" | "relaxed" | "last_resort";
 type OrientationClass = PhotoLayoutConstraint["orientationClass"];
+type SplitAxis = "vertical" | "horizontal";
 
 type TileProfile = {
   landscapeCount: number;
@@ -56,21 +58,70 @@ type TileProfile = {
   squareCount: number;
   largeReserveCount: number;
   highRiskReserveCount: number;
-  targets: OrientationClass[];
+  targets: Array<{ orientation: OrientationClass; weight: number }>;
+};
+
+type LeafNode = {
+  kind: "leaf";
+  id: string;
+  bounds: FillRect;
+  leafIds: string[];
+  minW: number;
+  minH: number;
+};
+
+type SplitNode = {
+  kind: "split";
+  id: string;
+  axis: SplitAxis;
+  baseRatio: number;
+  ratio: number;
+  minRatio: number;
+  maxRatio: number;
+  bounds: FillRect;
+  children: [TileLayoutTree, TileLayoutTree];
+  leafIds: string[];
+  minW: number;
+  minH: number;
+};
+
+type TileLayoutTree = LeafNode | SplitNode;
+
+type TileLayoutCandidate = {
+  tree: TileLayoutTree;
+  tiles: FillRect[];
+  leafOrder: string[];
+};
+
+type ElasticOptimizationProfile = {
+  rootBudget: number;
+  innerBudget: number;
+  coarseSteps: number[];
+  coarseRounds: number;
+  maxPathSplits: number;
+  fineTopK: number;
+  fineIterations: number;
+  allowLocalRetile: boolean;
+  allowContinuousRefinement: boolean;
+  rerunAfterLocalRetile: boolean;
 };
 
 type CandidateDiagnostics = {
   worstTileIndex: number;
+  worstLeafId?: string;
   topSoftCropTileIndices: number[];
   topSoftCropPhotoIds: string[];
+  topSoftCropLeafIds: string[];
 };
 
 type Candidate = {
+  tree: TileLayoutTree;
   tileOrder: OrderedTile[];
   tileToPhotoIndex: number[];
   cropDecisions: CropDecision[];
   orientationViolations: number;
   totalCost: number;
+  seamMovementPenalty: number;
   cw: number;
   ch: number;
   metrics: LayoutMetrics;
@@ -107,6 +158,7 @@ const ASPECT_WEIGHT = 45;
 const CENTER_WEIGHT = 8;
 const CROP_AREA_EPSILON = 1e-6;
 const SOFT_CROP_THRESHOLD = 0.08;
+const TREE_ID_PREFIX = "layout";
 
 const DEFAULT_SEARCH_OPTIONS: LayoutSearchOptions = {
   mode: "standard",
@@ -122,8 +174,83 @@ const DEFAULT_QUALITY_THRESHOLDS: LayoutQualityThresholds = {
   requireKeepRegionsFullyVisible: true,
 };
 
+function defaultModeForPhotoCount(count: number): LayoutSearchMode {
+  if (count <= 8) return "deep";
+  if (count <= 12) return "extended";
+  return DEFAULT_SEARCH_OPTIONS.mode;
+}
+
+function resolveSearchIntent(intent?: LayoutSearchIntent): LayoutSearchIntent {
+  return intent ?? "manual-assess";
+}
+
+function isQualityFirstDeepIntent(
+  intent?: LayoutSearchIntent,
+): boolean {
+  return intent === "auto-import" || intent === "manual-assess";
+}
+
+function defaultMaxSearchRounds(
+  mode: LayoutSearchMode,
+  intent: LayoutSearchIntent | undefined,
+  photoCount: number,
+): number {
+  if (mode === "deep" && intent === "confirmed-relayout") return 10;
+  if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    if (photoCount <= 24) return 12;
+    if (photoCount <= 72) return 8;
+    if (photoCount <= 120) return 6;
+    return 4;
+  }
+  if (mode === "deep") return 10;
+  if (mode === "extended") return 7;
+  return DEFAULT_SEARCH_OPTIONS.maxSearchRounds;
+}
+
 function clamp(num: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, num));
+}
+
+function hashStringToSeed(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) || 1;
+}
+
+function buildStableSeedKey(
+  photos: FillArrangePhotoInput[],
+  canvasW: number,
+  canvasH: number,
+  searchOptions: LayoutSearchOptions,
+): string {
+  const intent = resolveSearchIntent(searchOptions.intent);
+  const photoKey = photos
+    .map(photo => {
+      const crop = photo.crop;
+      return [
+        photo.id,
+        photo.imageWidth,
+        photo.imageHeight,
+        crop.x,
+        crop.y,
+        crop.width,
+        crop.height,
+      ].join(",");
+    })
+    .join("|");
+  return [
+    searchOptions.mode,
+    intent,
+    canvasW,
+    canvasH,
+    searchOptions.maxSearchRounds,
+    searchOptions.allowCanvasResize ? 1 : 0,
+    searchOptions.allowLocalRepair ? 1 : 0,
+    photoKey,
+  ].join("::");
 }
 
 function splitLength(total: number, parts: number): number[] {
@@ -133,6 +260,296 @@ function splitLength(total: number, parts: number): number[] {
   return Array.from(
     { length: parts },
     (_, i) => base + (i < remainder ? 1 : 0),
+  );
+}
+
+function mergeMetrics(
+  base: LayoutMetrics,
+  extra: Partial<LayoutMetrics>,
+): LayoutMetrics {
+  return {
+    evaluatedPairs: base.evaluatedPairs + (extra.evaluatedPairs ?? 0),
+    cacheHits: base.cacheHits + (extra.cacheHits ?? 0),
+    cacheMisses: base.cacheMisses + (extra.cacheMisses ?? 0),
+    orientationViolations:
+      base.orientationViolations + (extra.orientationViolations ?? 0),
+    canvasAdjustmentsTried:
+      base.canvasAdjustmentsTried + (extra.canvasAdjustmentsTried ?? 0),
+    elasticTrials: base.elasticTrials + (extra.elasticTrials ?? 0),
+    elasticAccepted: base.elasticAccepted + (extra.elasticAccepted ?? 0),
+    localRetileAccepted:
+      base.localRetileAccepted + (extra.localRetileAccepted ?? 0),
+    continuousRefinements:
+      base.continuousRefinements + (extra.continuousRefinements ?? 0),
+  };
+}
+
+function emptyMetrics(canvasAdjustmentsTried: number): LayoutMetrics {
+  return {
+    evaluatedPairs: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    orientationViolations: 0,
+    canvasAdjustmentsTried,
+    elasticTrials: 0,
+    elasticAccepted: 0,
+    localRetileAccepted: 0,
+    continuousRefinements: 0,
+  };
+}
+
+function rectKey(rect: FillRect): string {
+  return `${rect.x},${rect.y},${rect.w},${rect.h}`;
+}
+
+function cloneRect(rect: FillRect): FillRect {
+  return { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+}
+
+function buildLeafNode(
+  id: string,
+  bounds: FillRect,
+  minSize: number,
+): LeafNode {
+  return {
+    kind: "leaf",
+    id,
+    bounds: cloneRect(bounds),
+    leafIds: [id],
+    minW: Math.min(bounds.w, minSize),
+    minH: Math.min(bounds.h, minSize),
+  };
+}
+
+function applySplitBounds(
+  axis: SplitAxis,
+  bounds: FillRect,
+  ratio: number,
+): [FillRect, FillRect] {
+  if (axis === "vertical") {
+    const leftW = clamp(Math.round(bounds.w * ratio), 1, bounds.w - 1);
+    return [
+      { x: bounds.x, y: bounds.y, w: leftW, h: bounds.h },
+      { x: bounds.x + leftW, y: bounds.y, w: bounds.w - leftW, h: bounds.h },
+    ];
+  }
+  const topH = clamp(Math.round(bounds.h * ratio), 1, bounds.h - 1);
+  return [
+    { x: bounds.x, y: bounds.y, w: bounds.w, h: topH },
+    { x: bounds.x, y: bounds.y + topH, w: bounds.w, h: bounds.h - topH },
+  ];
+}
+
+function buildSplitNode(
+  id: string,
+  axis: SplitAxis,
+  bounds: FillRect,
+  ratio: number,
+  baseRatio: number,
+  children: [TileLayoutTree, TileLayoutTree],
+): SplitNode {
+  const [a, b] = children;
+  const minRatio =
+    axis === "vertical"
+      ? a.minW / Math.max(1, bounds.w)
+      : a.minH / Math.max(1, bounds.h);
+  const maxRatio =
+    axis === "vertical"
+      ? 1 - b.minW / Math.max(1, bounds.w)
+      : 1 - b.minH / Math.max(1, bounds.h);
+  return {
+    kind: "split",
+    id,
+    axis,
+    baseRatio,
+    ratio: clamp(ratio, minRatio, maxRatio),
+    minRatio,
+    maxRatio,
+    bounds: cloneRect(bounds),
+    children,
+    leafIds: [...a.leafIds, ...b.leafIds],
+    minW: axis === "vertical" ? a.minW + b.minW : Math.max(a.minW, b.minW),
+    minH: axis === "horizontal" ? a.minH + b.minH : Math.max(a.minH, b.minH),
+  };
+}
+
+function flattenTreeLeaves(tree: TileLayoutTree): LeafNode[] {
+  if (tree.kind === "leaf") return [tree];
+  return [...flattenTreeLeaves(tree.children[0]), ...flattenTreeLeaves(tree.children[1])];
+}
+
+function rebuildTreeBounds(
+  tree: TileLayoutTree,
+  bounds: FillRect,
+): TileLayoutTree {
+  if (tree.kind === "leaf") {
+    return { ...tree, bounds: cloneRect(bounds) };
+  }
+  const ratio = clamp(tree.ratio, tree.minRatio, tree.maxRatio);
+  const [leftBounds, rightBounds] = applySplitBounds(tree.axis, bounds, ratio);
+  const left = rebuildTreeBounds(tree.children[0], leftBounds);
+  const right = rebuildTreeBounds(tree.children[1], rightBounds);
+  return buildSplitNode(
+    tree.id,
+    tree.axis,
+    bounds,
+    ratio,
+    tree.baseRatio,
+    [left, right],
+  );
+}
+
+type SplitCandidateLine = {
+  axis: SplitAxis;
+  line: number;
+  score: number;
+  aRects: FillRect[];
+  bRects: FillRect[];
+};
+
+function findTreeSplitCandidate(
+  bounds: FillRect,
+  rects: FillRect[],
+): SplitCandidateLine | null {
+  const candidates: SplitCandidateLine[] = [];
+  const eps = 0.5;
+  const tryAxis = (axis: SplitAxis) => {
+    const lines = new Set<number>();
+    for (const rect of rects) {
+      const line =
+        axis === "vertical" ? rect.x + rect.w : rect.y + rect.h;
+      const min = axis === "vertical" ? bounds.x : bounds.y;
+      const max =
+        axis === "vertical" ? bounds.x + bounds.w : bounds.y + bounds.h;
+      if (line > min + eps && line < max - eps) lines.add(line);
+    }
+    for (const line of lines) {
+      const aRects = rects.filter(rect =>
+        axis === "vertical"
+          ? rect.x + rect.w <= line + eps
+          : rect.y + rect.h <= line + eps,
+      );
+      const bRects = rects.filter(rect =>
+        axis === "vertical" ? rect.x >= line - eps : rect.y >= line - eps,
+      );
+      if (
+        aRects.length === 0 ||
+        bRects.length === 0 ||
+        aRects.length + bRects.length !== rects.length
+      ) {
+        continue;
+      }
+      const midpoint =
+        axis === "vertical"
+          ? bounds.x + bounds.w / 2
+          : bounds.y + bounds.h / 2;
+      const score =
+        Math.abs(aRects.length - bRects.length) * 1000 +
+        Math.abs(line - midpoint);
+      candidates.push({ axis, line, score, aRects, bRects });
+    }
+  };
+  tryAxis("vertical");
+  tryAxis("horizontal");
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => a.score - b.score)[0];
+}
+
+function buildTreeFromRects(
+  bounds: FillRect,
+  rects: FillRect[],
+  minSize: number,
+  leafIdMap: Map<string, string>,
+  counter: { value: number },
+): TileLayoutTree {
+  if (rects.length <= 1) {
+    const rect = rects[0] ?? bounds;
+    const id = leafIdMap.get(rectKey(rect)) ?? `${TREE_ID_PREFIX}-leaf-${counter.value++}`;
+    return buildLeafNode(id, rect, minSize);
+  }
+
+  const split = findTreeSplitCandidate(bounds, rects);
+  if (!split) {
+    const sorted = [...rects].sort(
+      (a, b) => a.y - b.y || a.x - b.x || a.w - b.w || a.h - b.h,
+    );
+    const mid = Math.floor(sorted.length / 2);
+    const axis: SplitAxis = bounds.w >= bounds.h ? "vertical" : "horizontal";
+    const ratio = clamp(mid / sorted.length, 0.25, 0.75);
+    const [aBounds, bBounds] = applySplitBounds(axis, bounds, ratio);
+    const left = buildTreeFromRects(
+      aBounds,
+      sorted.slice(0, mid),
+      minSize,
+      leafIdMap,
+      counter,
+    );
+    const right = buildTreeFromRects(
+      bBounds,
+      sorted.slice(mid),
+      minSize,
+      leafIdMap,
+      counter,
+    );
+    return buildSplitNode(
+      `${TREE_ID_PREFIX}-split-${counter.value++}`,
+      axis,
+      bounds,
+      ratio,
+      ratio,
+      [left, right],
+    );
+  }
+
+  const ratio =
+    split.axis === "vertical"
+      ? (split.line - bounds.x) / Math.max(1, bounds.w)
+      : (split.line - bounds.y) / Math.max(1, bounds.h);
+  const [aBounds, bBounds] = applySplitBounds(split.axis, bounds, ratio);
+  const left = buildTreeFromRects(aBounds, split.aRects, minSize, leafIdMap, counter);
+  const right = buildTreeFromRects(bBounds, split.bRects, minSize, leafIdMap, counter);
+  return buildSplitNode(
+    `${TREE_ID_PREFIX}-split-${counter.value++}`,
+    split.axis,
+    bounds,
+    ratio,
+    ratio,
+    [left, right],
+  );
+}
+
+function buildLayoutCandidateFromRects(
+  bounds: FillRect,
+  rects: FillRect[],
+  minSize: number,
+): TileLayoutCandidate | null {
+  if (rects.length === 0) return null;
+  const leafIdMap = new Map<string, string>();
+  const sortedRects = [...rects].sort(
+    (a, b) => a.y - b.y || a.x - b.x || a.w - b.w || a.h - b.h,
+  );
+  sortedRects.forEach((rect, idx) => {
+    leafIdMap.set(rectKey(rect), `${TREE_ID_PREFIX}-leaf-${idx}`);
+  });
+  const tree = rebuildTreeBounds(
+    buildTreeFromRects(bounds, rects, minSize, leafIdMap, { value: 0 }),
+    bounds,
+  );
+  const leaves = flattenTreeLeaves(tree);
+  return {
+    tree,
+    tiles: leaves.map(leaf => cloneRect(leaf.bounds)),
+    leafOrder: leaves.map(leaf => leaf.id),
+  };
+}
+
+function getSeamMovementPenalty(tree: TileLayoutTree, weight: number = 1.2): number {
+  if (tree.kind === "leaf") return 0;
+  const current = Math.abs(tree.ratio - tree.baseRatio) * weight;
+  return (
+    current +
+    getSeamMovementPenalty(tree.children[0], 1) +
+    getSeamMovementPenalty(tree.children[1], 1)
   );
 }
 
@@ -375,18 +792,25 @@ function buildTileProfileFromPhotos(
     assignedCount++;
   }
 
-  const targets: OrientationClass[] = [];
+  const targets: Array<{ orientation: OrientationClass; weight: number }> = [];
   const remaining = { ...quotas };
   for (const item of sorted) {
     const orientation = item.constraint.orientationClass;
     if (remaining[orientation] > 0) {
-      targets.push(orientation);
+      const areaWeight = clamp(item.sourceArea / Math.max(1, averageArea), 0.65, 2.8);
+      const priorityWeight = prioritySet.has(item.photo.id) ? 0.45 : 0;
+      const riskWeight = item.constraint.isHighRisk ? 0.25 : 0;
+      const sizeWeight = item.constraint.sizeRankWeight * 0.55;
+      targets.push({
+        orientation,
+        weight: areaWeight + priorityWeight + riskWeight + sizeWeight,
+      });
       remaining[orientation]--;
     }
   }
   for (const orientation of ["landscape", "portrait", "square"] as const) {
     while (remaining[orientation] > 0) {
-      targets.push(orientation);
+      targets.push({ orientation, weight: 1 });
       remaining[orientation]--;
     }
   }
@@ -409,16 +833,16 @@ function buildTileProfileFromPhotos(
 
 function splitRectByTargets(
   rect: FillRect,
-  targets: OrientationClass[],
+  targets: Array<{ orientation: OrientationClass; weight: number }>,
   rand: () => number,
   minSize: number,
 ): FillRect[] {
   if (targets.length <= 1) return [rect];
 
   const counts = {
-    landscape: targets.filter(v => v === "landscape").length,
-    portrait: targets.filter(v => v === "portrait").length,
-    square: targets.filter(v => v === "square").length,
+    landscape: targets.filter(v => v.orientation === "landscape").length,
+    portrait: targets.filter(v => v.orientation === "portrait").length,
+    square: targets.filter(v => v.orientation === "square").length,
   };
   const dominant =
     counts.landscape >= counts.portrait && counts.landscape >= counts.square
@@ -438,9 +862,16 @@ function splitRectByTargets(
   const trySplit = (
     vertical: boolean,
   ): { a: FillRect; b: FillRect } | null => {
+    const totalWeight = targets.reduce((sum, item) => sum + item.weight, 0);
+    const leftWeight = leftTargets.reduce((sum, item) => sum + item.weight, 0);
+    const targetRatio = clamp(
+      leftWeight / Math.max(1e-6, totalWeight),
+      0.2,
+      0.8,
+    );
     if (vertical) {
       if (rect.w < minSize * 2) return null;
-      const ratio = clamp(leftTargets.length / targets.length, 0.2, 0.8);
+      const ratio = targetRatio;
       const w1 = clamp(Math.round(rect.w * ratio), minSize, rect.w - minSize);
       return {
         a: { x: rect.x, y: rect.y, w: w1, h: rect.h },
@@ -449,7 +880,7 @@ function splitRectByTargets(
     }
 
     if (rect.h < minSize * 2) return null;
-    const ratio = clamp(leftTargets.length / targets.length, 0.2, 0.8);
+    const ratio = targetRatio;
     const h1 = clamp(Math.round(rect.h * ratio), minSize, rect.h - minSize);
     return {
       a: { x: rect.x, y: rect.y, w: rect.w, h: h1 },
@@ -512,10 +943,10 @@ function buildStripTilesFromProfile(
   if (stripCount < 1 || stripCount >= count) return null;
 
   const stripTargets = profile.targets
-    .filter(target => target === stripOrientation)
+    .filter(target => target.orientation === stripOrientation)
     .slice(0, stripCount);
   const mainTargets = profile.targets
-    .filter(target => target !== stripOrientation)
+    .filter(target => target.orientation !== stripOrientation)
     .slice(0, count - stripCount);
   if (stripTargets.length !== stripCount || mainTargets.length !== count - stripCount) {
     return null;
@@ -561,10 +992,40 @@ function reserveTilesForPriorityPhotos(
   const reorderedTargets = [
     ...photoFeatures
       .filter(item => prioritySet.has(item.photo.id))
-      .map(item => item.constraint.orientationClass),
+      .map(item => ({
+        orientation: item.constraint.orientationClass,
+        weight:
+          clamp(
+            item.sourceArea /
+              Math.max(
+                1,
+                photoFeatures.reduce((sum, feature) => sum + feature.sourceArea, 0) /
+                  Math.max(1, photoFeatures.length),
+              ),
+            0.65,
+            2.8,
+          ) +
+          item.constraint.sizeRankWeight * 0.55 +
+          (item.constraint.isHighRisk ? 0.25 : 0),
+      })),
     ...photoFeatures
       .filter(item => !prioritySet.has(item.photo.id))
-      .map(item => item.constraint.orientationClass),
+      .map(item => ({
+        orientation: item.constraint.orientationClass,
+        weight:
+          clamp(
+            item.sourceArea /
+              Math.max(
+                1,
+                photoFeatures.reduce((sum, feature) => sum + feature.sourceArea, 0) /
+                  Math.max(1, photoFeatures.length),
+              ),
+            0.65,
+            2.8,
+          ) +
+          item.constraint.sizeRankWeight * 0.55 +
+          (item.constraint.isHighRisk ? 0.25 : 0),
+      })),
   ];
   return buildTilesFromProfile(
     count,
@@ -573,6 +1034,23 @@ function reserveTilesForPriorityPhotos(
     { ...profile, targets: reorderedTargets },
     rand,
   );
+}
+
+function createLayoutCandidateForTiles(
+  root: FillRect,
+  tiles: FillRect[],
+): TileLayoutCandidate | null {
+  const minSize = Math.max(80, Math.round(Math.min(root.w, root.h) * 0.12));
+  return buildLayoutCandidateFromRects(root, tiles, minSize);
+}
+
+function createLayoutCandidateFromTree(tree: TileLayoutTree): TileLayoutCandidate {
+  const leaves = flattenTreeLeaves(tree);
+  return {
+    tree,
+    tiles: leaves.map(leaf => cloneRect(leaf.bounds)),
+    leafOrder: leaves.map(leaf => leaf.id),
+  };
 }
 
 function rectIntersectionArea(a: CropRect, b: CropRect): number {
@@ -760,10 +1238,17 @@ function buildCropDecision(
 function resolveSearchOptions(
   options?: Partial<LayoutSearchOptions>,
   allowCanvasResize?: boolean,
+  photoCount: number = 0,
 ): LayoutSearchOptions {
+  const mode = options?.mode ?? defaultModeForPhotoCount(photoCount);
+  const intent = options?.intent;
   return {
     ...DEFAULT_SEARCH_OPTIONS,
     ...options,
+    mode,
+    intent,
+    maxSearchRounds:
+      options?.maxSearchRounds ?? defaultMaxSearchRounds(mode, intent, photoCount),
     allowCanvasResize:
       allowCanvasResize ?? options?.allowCanvasResize ?? DEFAULT_SEARCH_OPTIONS.allowCanvasResize,
   };
@@ -790,36 +1275,86 @@ function canvasDeltaRatio(
 function createCanvasSizes(
   canvasW: number,
   canvasH: number,
-  mode: LayoutSearchMode,
+  searchOptions: LayoutSearchOptions,
   allowCanvasResize: boolean,
+  photoCount: number = 0,
 ): Array<{ w: number; h: number }> {
   if (!allowCanvasResize) return [{ w: canvasW, h: canvasH }];
   const sizes = new Map<string, { w: number; h: number }>();
+  const mode = searchOptions.mode;
+  const intent = searchOptions.intent;
   const addSize = (sx: number, sy: number) => {
     const w = Math.max(1, Math.round(canvasW * sx));
     const h = Math.max(1, Math.round(canvasH * sy));
     sizes.set(`${w}x${h}`, { w, h });
   };
 
-  if (mode === "deep") {
-    const scales = [0.9, 0.94, 0.98, 1, 1.03, 1.08, 1.15];
-    for (const scale of scales) addSize(scale, scale);
+  if (mode === "deep" && intent === "confirmed-relayout") {
+    for (const scale of [0.88, 0.92, 0.96, 1, 1.04, 1.08, 1.12, 1.16]) {
+      addSize(scale, scale);
+    }
     for (const sx of [0.94, 0.98, 1.02, 1.06]) {
       addSize(sx, 1);
       addSize(1, sx);
     }
+  } else if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    const scales =
+      photoCount > 120
+        ? [0.94, 0.98, 1, 1.04, 1.08]
+        : photoCount > 72
+          ? [0.92, 0.96, 1, 1.04, 1.08]
+          : [0.9, 0.94, 0.98, 1, 1.04, 1.08, 1.12];
+    for (const scale of scales) {
+      addSize(scale, scale);
+    }
+    const anisotropic = photoCount > 120 ? [0.98, 1.02] : [0.96, 1.04];
+    for (const sx of anisotropic) {
+      addSize(sx, 1);
+      addSize(1, sx);
+    }
+  } else if (mode === "deep") {
+    const scales =
+      photoCount >= 120
+        ? [0.94, 0.98, 1, 1.04, 1.08]
+        : photoCount >= 72
+          ? [0.92, 0.96, 1, 1.04, 1.08]
+          : [0.9, 0.94, 0.98, 1, 1.03, 1.08, 1.15];
+    for (const scale of scales) addSize(scale, scale);
+    const anisotropic =
+      photoCount >= 120
+        ? [0.98, 1.02]
+        : photoCount >= 72
+          ? [0.96, 1, 1.04]
+          : [0.94, 0.98, 1.02, 1.06];
+    for (const sx of anisotropic) {
+      addSize(sx, 1);
+      addSize(1, sx);
+    }
   } else if (mode === "extended") {
-    for (const scale of [0.94, 0.98, 1, 1.04, 1.08]) addSize(scale, scale);
-    for (const sx of [0.98, 1.02, 1.06]) {
+    const scales =
+      photoCount >= 120
+        ? [0.96, 1, 1.04]
+        : photoCount >= 72
+          ? [0.94, 0.98, 1, 1.04]
+          : [0.94, 0.98, 1, 1.04, 1.08];
+    for (const scale of scales) addSize(scale, scale);
+    const anisotropic =
+      photoCount >= 120
+        ? [0.99, 1.01]
+        : photoCount >= 72
+          ? [0.98, 1.02]
+          : [0.98, 1.02, 1.06];
+    for (const sx of anisotropic) {
       addSize(sx, 1);
       addSize(1, sx);
     }
   } else {
-    for (const scale of [0.98, 1, 1.02]) addSize(scale, scale);
-    addSize(0.99, 1);
-    addSize(1.01, 1);
-    addSize(1, 0.99);
-    addSize(1, 1.01);
+    const scales = photoCount >= 120 ? [0.99, 1, 1.01] : [0.98, 1, 1.02];
+    for (const scale of scales) addSize(scale, scale);
+    for (const sx of [0.99, 1.01]) {
+      addSize(sx, 1);
+      addSize(1, sx);
+    }
   }
 
   return [...sizes.values()].sort((a, b) => {
@@ -833,7 +1368,29 @@ function createCanvasSizes(
   });
 }
 
-function attemptCountForMode(mode: LayoutSearchMode): number {
+function attemptCountForMode(
+  searchOptions: LayoutSearchOptions,
+  photoCount: number = 0,
+): number {
+  const mode = searchOptions.mode;
+  const intent = searchOptions.intent;
+  if (mode === "deep" && intent === "confirmed-relayout") return 10;
+  if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    if (photoCount <= 24) return 12;
+    if (photoCount <= 72) return 8;
+    if (photoCount <= 120) return 6;
+    return 4;
+  }
+  if (photoCount >= 120) {
+    if (mode === "deep") return 4;
+    if (mode === "extended") return 4;
+    return 3;
+  }
+  if (photoCount >= 72) {
+    if (mode === "deep") return 6;
+    if (mode === "extended") return 5;
+    return 4;
+  }
   if (mode === "deep") return 10;
   if (mode === "extended") return 7;
   return 6;
@@ -843,22 +1400,327 @@ function stagesForMode(mode: LayoutSearchMode): SearchStage[] {
   return mode === "standard" ? ["strict", "relaxed"] : ["strict", "relaxed", "last_resort"];
 }
 
+function getElasticProfile(
+  searchOptions: LayoutSearchOptions,
+  photoCount: number = 0,
+): ElasticOptimizationProfile {
+  const mode = searchOptions.mode;
+  const intent = searchOptions.intent;
+  if (mode === "deep" && intent === "confirmed-relayout") {
+    return {
+      rootBudget: 0.15,
+      innerBudget: 0.15,
+      coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08, 0.12, 0.15],
+      coarseRounds: 4,
+      maxPathSplits: 5,
+      fineTopK: 3,
+      fineIterations: 5,
+      allowLocalRetile: true,
+      allowContinuousRefinement: true,
+      rerunAfterLocalRetile: true,
+    };
+  }
+  if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    if (photoCount > 120) {
+      return {
+        rootBudget: 0.12,
+        innerBudget: 0.08,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06],
+        coarseRounds: 2,
+        maxPathSplits: 3,
+        fineTopK: 1,
+        fineIterations: 2,
+        allowLocalRetile: false,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    if (photoCount > 72) {
+      return {
+        rootBudget: 0.13,
+        innerBudget: 0.1,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08],
+        coarseRounds: 3,
+        maxPathSplits: 4,
+        fineTopK: 2,
+        fineIterations: 3,
+        allowLocalRetile: true,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    return {
+      rootBudget: 0.13,
+      innerBudget: 0.1,
+      coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08],
+      coarseRounds: 3,
+      maxPathSplits: 4,
+      fineTopK: 2,
+      fineIterations: 3,
+      allowLocalRetile: true,
+      allowContinuousRefinement: true,
+      rerunAfterLocalRetile: false,
+    };
+  }
+  if (mode === "deep") {
+    if (photoCount >= 120) {
+      return {
+        rootBudget: 0.12,
+        innerBudget: 0.08,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06],
+        coarseRounds: 2,
+        maxPathSplits: 2,
+        fineTopK: 1,
+        fineIterations: 2,
+        allowLocalRetile: false,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    if (photoCount >= 72) {
+      return {
+        rootBudget: 0.13,
+        innerBudget: 0.1,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08],
+        coarseRounds: 3,
+        maxPathSplits: 3,
+        fineTopK: 2,
+        fineIterations: 3,
+        allowLocalRetile: false,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    return {
+      rootBudget: 0.15,
+      innerBudget: 0.15,
+      coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08, 0.12, 0.15],
+      coarseRounds: 4,
+      maxPathSplits: 5,
+      fineTopK: 3,
+      fineIterations: 5,
+      allowLocalRetile: true,
+      allowContinuousRefinement: true,
+      rerunAfterLocalRetile: true,
+    };
+  }
+  if (mode === "extended") {
+    if (photoCount >= 120) {
+      return {
+        rootBudget: 0.08,
+        innerBudget: 0.06,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06],
+        coarseRounds: 2,
+        maxPathSplits: 2,
+        fineTopK: 1,
+        fineIterations: 2,
+        allowLocalRetile: false,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    if (photoCount >= 72) {
+      return {
+        rootBudget: 0.09,
+        innerBudget: 0.07,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06],
+        coarseRounds: 2,
+        maxPathSplits: 2,
+        fineTopK: 1,
+        fineIterations: 3,
+        allowLocalRetile: false,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    return {
+      rootBudget: 0.1,
+      innerBudget: 0.08,
+      coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08],
+      coarseRounds: 2,
+      maxPathSplits: 3,
+      fineTopK: 1,
+      fineIterations: 5,
+      allowLocalRetile: true,
+      allowContinuousRefinement: true,
+      rerunAfterLocalRetile: false,
+    };
+  }
+  return {
+    rootBudget: 0.06,
+    innerBudget: 0.04,
+    coarseSteps: [0.01, 0.02, 0.04, 0.06],
+    coarseRounds: 1,
+    maxPathSplits: 2,
+    fineTopK: 0,
+    fineIterations: 0,
+    allowLocalRetile: false,
+    allowContinuousRefinement: false,
+    rerunAfterLocalRetile: false,
+  };
+}
+
 function createTileOrder(
   tiles: FillRect[],
   canvasW: number,
   canvasH: number,
+  leafOrder?: string[],
 ): OrderedTile[] {
   const canvasCx = canvasW / 2;
   const canvasCy = canvasH / 2;
   const maxDist = Math.sqrt(canvasCx * canvasCx + canvasCy * canvasCy) || 1;
   return [...tiles]
-    .map(tile => {
+    .map((tile, idx) => {
       const tileCx = tile.x + tile.w / 2;
       const tileCy = tile.y + tile.h / 2;
       const dist = Math.sqrt((tileCx - canvasCx) ** 2 + (tileCy - canvasCy) ** 2);
-      return { tile, dist: dist / maxDist };
+      return {
+        tile,
+        dist: dist / maxDist,
+        leafId: leafOrder?.[idx] ?? `${TREE_ID_PREFIX}-leaf-${idx}`,
+      };
     })
     .sort((a, b) => a.dist - b.dist);
+}
+
+function createTileOrderFromLayout(
+  layout: TileLayoutCandidate,
+  canvasW: number,
+  canvasH: number,
+): OrderedTile[] {
+  return createTileOrder(layout.tiles, canvasW, canvasH, layout.leafOrder);
+}
+
+function findSplitPathToLeaf(
+  tree: TileLayoutTree,
+  leafId: string,
+  depth: number = 0,
+): Array<{ id: string; depth: number }> {
+  if (tree.kind === "leaf") return tree.id === leafId ? [] : [];
+  if (!tree.leafIds.includes(leafId)) return [];
+  const childPath =
+    tree.children[0].leafIds.includes(leafId)
+      ? findSplitPathToLeaf(tree.children[0], leafId, depth + 1)
+      : findSplitPathToLeaf(tree.children[1], leafId, depth + 1);
+  return [{ id: tree.id, depth }, ...childPath];
+}
+
+function findNodeById(tree: TileLayoutTree, id: string): TileLayoutTree | null {
+  if (tree.id === id) return tree;
+  if (tree.kind === "leaf") return null;
+  return findNodeById(tree.children[0], id) ?? findNodeById(tree.children[1], id);
+}
+
+function findNodeDepth(
+  tree: TileLayoutTree,
+  id: string,
+  depth: number = 0,
+): number | null {
+  if (tree.id === id) return depth;
+  if (tree.kind === "leaf") return null;
+  return (
+    findNodeDepth(tree.children[0], id, depth + 1) ??
+    findNodeDepth(tree.children[1], id, depth + 1)
+  );
+}
+
+function replaceSubtree(
+  tree: TileLayoutTree,
+  targetId: string,
+  nextTree: TileLayoutTree,
+): TileLayoutTree {
+  if (tree.id === targetId) return rebuildTreeBounds(nextTree, tree.bounds);
+  if (tree.kind === "leaf") return tree;
+  const left = replaceSubtree(tree.children[0], targetId, nextTree);
+  const right = replaceSubtree(tree.children[1], targetId, nextTree);
+  return buildSplitNode(
+    tree.id,
+    tree.axis,
+    tree.bounds,
+    tree.ratio,
+    tree.baseRatio,
+    [left, right],
+  );
+}
+
+function applyLeafIdsToTree(
+  tree: TileLayoutTree,
+  leafIds: string[],
+): TileLayoutTree {
+  let index = 0;
+  const assign = (node: TileLayoutTree): TileLayoutTree => {
+    if (node.kind === "leaf") {
+      const id = leafIds[index++] ?? node.id;
+      return { ...node, id, leafIds: [id] };
+    }
+    const left = assign(node.children[0]);
+    const right = assign(node.children[1]);
+    return buildSplitNode(
+      node.id,
+      node.axis,
+      node.bounds,
+      node.ratio,
+      node.baseRatio,
+      [left, right],
+    );
+  };
+  return assign(tree);
+}
+
+function collectOptimizableSplitIds(
+  candidate: Candidate,
+  maxCount: number,
+): string[] {
+  const leafIds = [
+    candidate.diagnostics.worstLeafId,
+    ...candidate.diagnostics.topSoftCropLeafIds,
+  ].filter((id): id is string => !!id);
+  const collected: Array<{ id: string; depth: number }> = [];
+  const seen = new Set<string>();
+  for (const leafId of leafIds) {
+    const path = findSplitPathToLeaf(candidate.tree, leafId)
+      .sort((a, b) => b.depth - a.depth);
+    for (const item of path) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      collected.push(item);
+      if (collected.length >= maxCount) return collected.map(entry => entry.id);
+    }
+  }
+  return collected.map(entry => entry.id);
+}
+
+function getElasticBoundsForSplit(
+  node: SplitNode,
+  depth: number,
+  profile: ElasticOptimizationProfile,
+): { min: number; max: number } {
+  const budget = depth === 0 ? profile.rootBudget : profile.innerBudget;
+  return {
+    min: Math.max(node.minRatio, node.baseRatio - budget),
+    max: Math.min(node.maxRatio, node.baseRatio + budget),
+  };
+}
+
+function updateTreeSplitRatio(
+  tree: TileLayoutTree,
+  targetId: string,
+  targetRatio: number,
+): TileLayoutTree {
+  if (tree.kind === "leaf") return tree;
+  if (tree.id === targetId) {
+    return rebuildTreeBounds({ ...tree, ratio: targetRatio }, tree.bounds);
+  }
+  const left = updateTreeSplitRatio(tree.children[0], targetId, targetRatio);
+  const right = updateTreeSplitRatio(tree.children[1], targetId, targetRatio);
+  return buildSplitNode(
+    tree.id,
+    tree.axis,
+    tree.bounds,
+    tree.ratio,
+    tree.baseRatio,
+    [left, right],
+  );
 }
 
 function decisionCacheKey(
@@ -940,11 +1802,20 @@ function buildCandidateDiagnostics(
     .filter(item => item.cropLoss > SOFT_CROP_THRESHOLD)
     .slice(0, 3)
     .map(item => item.idx);
+  const worstLeafId = tileOrder[worstTileIndex]?.leafId;
   const topSoftCropPhotoIds = topSoftCropTileIndices.map(
     idx => photos[tileToPhotoIndex[idx]]?.id ?? "",
   ).filter(Boolean);
-  void tileOrder;
-  return { worstTileIndex, topSoftCropTileIndices, topSoftCropPhotoIds };
+  const topSoftCropLeafIds = topSoftCropTileIndices.map(
+    idx => tileOrder[idx]?.leafId ?? "",
+  ).filter(Boolean);
+  return {
+    worstTileIndex,
+    worstLeafId,
+    topSoftCropTileIndices,
+    topSoftCropPhotoIds,
+    topSoftCropLeafIds,
+  };
 }
 
 function summarizeLayoutQuality(
@@ -952,6 +1823,7 @@ function summarizeLayoutQuality(
   tileOrder: OrderedTile[],
   tileToPhotoIndex: number[],
   photos: FillArrangePhotoInput[],
+  constraintById: Map<string, PhotoLayoutConstraint>,
   thresholds: LayoutQualityThresholds,
   baseCanvasW: number,
   baseCanvasH: number,
@@ -968,6 +1840,20 @@ function summarizeLayoutQuality(
   const averageCropLoss =
     decisions.reduce((sum, decision) => sum + decision.cropLoss, 0) /
     Math.max(1, decisions.length);
+  const weightedCrop = decisions.reduce(
+    (sum, decision, idx) => {
+      const photoId = photos[tileToPhotoIndex[idx]]?.id;
+      const constraint = photoId ? constraintById.get(photoId) : null;
+      const weight = 1 + (constraint?.sizeRankWeight ?? 0) * 2.4;
+      return {
+        weightedLoss: sum.weightedLoss + decision.cropLoss * weight,
+        totalWeight: sum.totalWeight + weight,
+      };
+    },
+    { weightedLoss: 0, totalWeight: 0 },
+  );
+  const sizeWeightedAverageCropLoss =
+    weightedCrop.weightedLoss / Math.max(1e-6, weightedCrop.totalWeight);
   const photosOverSoftCropThreshold = decisions.filter(
     decision => decision.cropLoss > SOFT_CROP_THRESHOLD,
   ).length;
@@ -997,6 +1883,7 @@ function summarizeLayoutQuality(
   return {
     worstCropLoss,
     averageCropLoss,
+    sizeWeightedAverageCropLoss,
     photosOverSoftCropThreshold,
     photosOverCropThreshold,
     photosCutRequiredRegions,
@@ -1020,14 +1907,22 @@ function compareCandidate(a: Candidate, b: Candidate): number {
     "worstCropLoss",
     "photosOverSoftCropThreshold",
     "photosOverCropThreshold",
+    "sizeWeightedAverageCropLoss",
     "averageCropLoss",
-    "orientationViolations",
-    "canvasDeltaRatio",
   ];
   for (const key of compareFields) {
     const av = a.quality[key] as number;
     const bv = b.quality[key] as number;
     if (av !== bv) return av - bv;
+  }
+  if (a.seamMovementPenalty !== b.seamMovementPenalty) {
+    return a.seamMovementPenalty - b.seamMovementPenalty;
+  }
+  if (a.quality.orientationViolations !== b.quality.orientationViolations) {
+    return a.quality.orientationViolations - b.quality.orientationViolations;
+  }
+  if (a.quality.canvasDeltaRatio !== b.quality.canvasDeltaRatio) {
+    return a.quality.canvasDeltaRatio - b.quality.canvasDeltaRatio;
   }
   return a.totalCost - b.totalCost;
 }
@@ -1071,6 +1966,7 @@ function validatePlacements(
 
 function buildCandidateFromAssignment(
   ctx: SolverContext,
+  tree: TileLayoutTree,
   tileOrder: OrderedTile[],
   tileToPhotoIndex: number[],
   cw: number,
@@ -1106,6 +2002,7 @@ function buildCandidateFromAssignment(
     tileOrder,
     tileToPhotoIndex,
     ctx.photos,
+    ctx.constraintById,
     ctx.qualityThresholds,
     ctx.baseCanvasW,
     ctx.baseCanvasH,
@@ -1120,11 +2017,13 @@ function buildCandidateFromAssignment(
     ctx.photos,
   );
   return {
+    tree,
     tileOrder,
     tileToPhotoIndex,
     cropDecisions,
     orientationViolations,
     totalCost,
+    seamMovementPenalty: getSeamMovementPenalty(tree),
     cw,
     ch,
     metrics,
@@ -1134,17 +2033,19 @@ function buildCandidateFromAssignment(
   };
 }
 
-function solveAssignmentForTileOrder(
+function solveAssignmentForLayout(
   ctx: SolverContext,
-  tileOrder: OrderedTile[],
+  layout: TileLayoutCandidate,
   cw: number,
   ch: number,
   stage: SearchStage,
   canvasAdjustmentsTried: number,
+  metricSeed: LayoutMetrics = emptyMetrics(canvasAdjustmentsTried),
 ): Candidate | null {
   let evaluatedPairs = 0;
   let cacheHits = 0;
   let cacheMisses = 0;
+  const tileOrder = createTileOrderFromLayout(layout, cw, ch);
   const assignmentPhotos: FillArrangeAssignmentPhoto[] = ctx.photoFeatures.map(item => ({
     id: item.photo.id,
     sourceAspect: item.strategy.sourceAspect,
@@ -1192,62 +2093,20 @@ function solveAssignmentForTileOrder(
 
   return buildCandidateFromAssignment(
     ctx,
+    layout.tree,
     tileOrder,
     tileToPhotoIndex,
     cw,
     ch,
     stage,
-    {
+    mergeMetrics(metricSeed, {
       evaluatedPairs,
       cacheHits,
       cacheMisses,
       orientationViolations: 0,
       canvasAdjustmentsTried,
-    },
+    }),
   );
-}
-
-function rectsTouch(a: FillRect, b: FillRect): boolean {
-  const verticalTouch =
-    (Math.abs(a.x + a.w - b.x) < 0.5 || Math.abs(b.x + b.w - a.x) < 0.5) &&
-    Math.abs(a.y - b.y) < 0.5 &&
-    Math.abs(a.h - b.h) < 0.5;
-  const horizontalTouch =
-    (Math.abs(a.y + a.h - b.y) < 0.5 || Math.abs(b.y + b.h - a.y) < 0.5) &&
-    Math.abs(a.x - b.x) < 0.5 &&
-    Math.abs(a.w - b.w) < 0.5;
-  return verticalTouch || horizontalTouch;
-}
-
-function chooseRepairGroupIndices(candidate: Candidate, anchorIdx: number): number[] {
-  const anchor = candidate.tileOrder[anchorIdx]?.tile;
-  if (!anchor) return [];
-  const rowMatches = candidate.tileOrder
-    .map((entry, idx) => ({ idx, tile: entry.tile }))
-    .filter(entry => Math.abs(entry.tile.y - anchor.y) < 0.5 && Math.abs(entry.tile.h - anchor.h) < 0.5)
-    .sort((a, b) => a.tile.x - b.tile.x)
-    .map(entry => entry.idx);
-  const colMatches = candidate.tileOrder
-    .map((entry, idx) => ({ idx, tile: entry.tile }))
-    .filter(entry => Math.abs(entry.tile.x - anchor.x) < 0.5 && Math.abs(entry.tile.w - anchor.w) < 0.5)
-    .sort((a, b) => a.tile.y - b.tile.y)
-    .map(entry => entry.idx);
-
-  const scoreGroup = (indices: number[]) =>
-    indices.reduce((sum, idx) => sum + candidate.cropDecisions[idx].cropLoss, 0);
-
-  const cropGroup = (indices: number[]) => {
-    const pos = indices.indexOf(anchorIdx);
-    if (pos === -1) return [];
-    const start = Math.max(0, pos - 1);
-    return indices.slice(start, start + Math.min(4, indices.length));
-  };
-
-  const rowGroup = cropGroup(rowMatches);
-  const colGroup = cropGroup(colMatches);
-  if (rowGroup.length < 2) return colGroup;
-  if (colGroup.length < 2) return rowGroup;
-  return scoreGroup(rowGroup) >= scoreGroup(colGroup) ? rowGroup : colGroup;
 }
 
 function tryAdjacentSwapRepair(
@@ -1261,6 +2120,7 @@ function tryAdjacentSwapRepair(
     [swapped[i], swapped[i + 1]] = [swapped[i + 1], swapped[i]];
     const repaired = buildCandidateFromAssignment(
       ctx,
+      candidate.tree,
       candidate.tileOrder,
       swapped,
       candidate.cw,
@@ -1277,201 +2137,214 @@ function tryLocalRetileRepair(
   ctx: SolverContext,
   candidate: Candidate,
   randSeed: number,
+  profile: ElasticOptimizationProfile,
 ): Candidate {
+  if (!profile.allowLocalRetile) return candidate;
   let best = candidate;
-  const anchors = candidate.diagnostics.topSoftCropTileIndices.slice(0, 2);
+  let localRetileAccepted = 0;
+  const anchors = [
+    candidate.diagnostics.worstLeafId,
+    ...candidate.diagnostics.topSoftCropLeafIds,
+  ].filter((id): id is string => !!id).slice(0, 2);
   let attempts = 0;
 
-  for (const anchorIdx of anchors) {
-    if (attempts >= 2) break;
-    const subsetIndices = chooseRepairGroupIndices(best, anchorIdx);
-    if (subsetIndices.length < 2 || subsetIndices.length > 4) continue;
+  const findRetileSplit = (
+    tree: TileLayoutTree,
+    leafId: string,
+  ): SplitNode | null => {
+    let bestNode: SplitNode | null = null;
+    const walk = (node: TileLayoutTree) => {
+      if (node.kind === "leaf" || !node.leafIds.includes(leafId)) return;
+      if (node.leafIds.length >= 2 && node.leafIds.length <= 4) {
+        if (!bestNode || node.leafIds.length < bestNode.leafIds.length) {
+          bestNode = node;
+        }
+      }
+      walk(node.children[0]);
+      walk(node.children[1]);
+    };
+    walk(tree);
+    return bestNode;
+  };
 
-    const subsetTiles = subsetIndices.map(idx => best.tileOrder[idx].tile);
-    const minX = Math.min(...subsetTiles.map(tile => tile.x));
-    const minY = Math.min(...subsetTiles.map(tile => tile.y));
-    const maxX = Math.max(...subsetTiles.map(tile => tile.x + tile.w));
-    const maxY = Math.max(...subsetTiles.map(tile => tile.y + tile.h));
-    const region: FillRect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-    const subsetPhotoIndices = subsetIndices.map(idx => best.tileToPhotoIndex[idx]);
+  for (const anchorLeafId of anchors) {
+    if (attempts >= 2) break;
+    const target = findRetileSplit(best.tree, anchorLeafId);
+    if (!target) continue;
+
+    const subsetPhotoIndices = target.leafIds.map(leafId => {
+      const tileIdx = best.tileOrder.findIndex(entry => entry.leafId === leafId);
+      return tileIdx >= 0 ? best.tileToPhotoIndex[tileIdx] : -1;
+    });
+    if (subsetPhotoIndices.some(idx => idx < 0)) continue;
     const subsetFeatures = subsetPhotoIndices.map(idx => ctx.photoFeatures[idx]);
-    const profile = buildTileProfileFromPhotos(
+    const localTileProfile = buildTileProfileFromPhotos(
       subsetFeatures,
-      subsetIndices.map(idx => ctx.photos[best.tileToPhotoIndex[idx]].id),
+      subsetPhotoIndices.map(idx => ctx.photos[idx]?.id ?? "").filter(Boolean),
     );
-    let localSeed = (randSeed + anchorIdx * 2654435761) >>> 0;
+    let localSeed = (randSeed + attempts * 2654435761) >>> 0;
     const localRand = () => {
       localSeed = (localSeed * 1664525 + 1013904223) >>> 0;
       return localSeed / 2 ** 32;
     };
+    const relativeRoot = { x: 0, y: 0, w: target.bounds.w, h: target.bounds.h };
     const tileSets = [
-      buildTilesFromProfile(subsetIndices.length, region.w, region.h, profile, localRand),
-      partitionRectToTiles({ x: 0, y: 0, w: region.w, h: region.h }, subsetIndices.length, localRand, 0.38, 0.62),
-      buildFallbackGridTiles(subsetIndices.length, region.w, region.h),
+      buildTilesFromProfile(
+        target.leafIds.length,
+        relativeRoot.w,
+        relativeRoot.h,
+        localTileProfile,
+        localRand,
+      ),
+      partitionRectToTiles(relativeRoot, target.leafIds.length, localRand, 0.38, 0.62),
+      buildFallbackGridTiles(target.leafIds.length, relativeRoot.w, relativeRoot.h),
     ];
 
     for (const tiles of tileSets) {
-      const orderedSubsetTiles = createTileOrder(
-        tiles.map(tile => ({ x: tile.x + region.x, y: tile.y + region.y, w: tile.w, h: tile.h })),
-        best.cw,
-        best.ch,
-      );
-      const assignmentPhotos: FillArrangeAssignmentPhoto[] = subsetFeatures.map(item => ({
-        id: item.photo.id,
-        sourceAspect: item.strategy.sourceAspect,
-        preferredAspect: item.constraint.idealAspect,
-        orientation: item.strategy.orientation,
-        isExtreme: item.strategy.isExtreme,
+      const absoluteTiles = tiles.map(tile => ({
+        x: tile.x + target.bounds.x,
+        y: tile.y + target.bounds.y,
+        w: tile.w,
+        h: tile.h,
       }));
-      const assignmentTiles: FillArrangeAssignmentTile[] = orderedSubsetTiles.map(({ tile, dist }) => ({
-        aspect: tile.w / Math.max(1, tile.h),
-        dist,
-        area: tile.w * tile.h,
-      }));
-
-      let localTileToPhoto: number[];
-      try {
-        localTileToPhoto = assignPhotosToTiles(assignmentPhotos, assignmentTiles, {
-          nonExtremeWeight: 1.1,
-          centerBiasWeight: CENTER_BIAS_WEIGHT,
-          edgeBiasWeight: EDGE_BIAS_WEIGHT,
-          orientationPenalty: best.stage === "strict" ? 40 : best.stage === "relaxed" ? 120 : 180,
-          isPairAllowed: (photoStrategy, tile) => {
-            const decision = decisionFor(ctx, photoStrategy.id, tile, best.stage);
-            const constraint = ctx.constraintById.get(photoStrategy.id)!;
-            return isAllowedByStage(decision, constraint, best.stage);
-          },
-          evaluatePair: (photoStrategy, tile) => {
-            const decision = decisionFor(ctx, photoStrategy.id, tile, best.stage);
-            const constraint = ctx.constraintById.get(photoStrategy.id)!;
-            return pairCostByStage(decision, constraint, best.stage);
-          },
-        });
-      } catch {
+      const localLayout = createLayoutCandidateForTiles(target.bounds, absoluteTiles);
+      if (!localLayout) {
         continue;
       }
-
-      const nextTileOrder = [...best.tileOrder];
-      const nextAssignment = [...best.tileToPhotoIndex];
-      const orderedSubsetIndices = [...subsetIndices].sort((a, b) => a - b);
-      for (let i = 0; i < orderedSubsetIndices.length; i++) {
-        nextTileOrder[orderedSubsetIndices[i]] = orderedSubsetTiles[i];
-        nextAssignment[orderedSubsetIndices[i]] = subsetPhotoIndices[localTileToPhoto[i]];
-      }
-
-      const repaired = buildCandidateFromAssignment(
+      const remappedLocalTree = applyLeafIdsToTree(localLayout.tree, target.leafIds);
+      const nextTree = replaceSubtree(best.tree, target.id, remappedLocalTree);
+      const repaired = solveAssignmentForLayout(
         ctx,
-        nextTileOrder,
-        nextAssignment,
+        createLayoutCandidateFromTree(nextTree),
         best.cw,
         best.ch,
         best.stage,
+        0,
         best.metrics,
       );
       if (repaired && compareCandidate(repaired, best) < 0) {
         best = repaired;
+        localRetileAccepted++;
       }
     }
     attempts++;
   }
-  return best;
+
+  return localRetileAccepted > 0
+    ? { ...best, metrics: mergeMetrics(best.metrics, { localRetileAccepted }) }
+    : best;
 }
 
-function findRefinementNeighbors(candidate: Candidate, tileIdx: number): number[] {
-  const tile = candidate.tileOrder[tileIdx]?.tile;
-  if (!tile) return [];
-  return candidate.tileOrder
-    .map((entry, idx) => ({ idx, tile: entry.tile }))
-    .filter(entry => entry.idx !== tileIdx && rectsTouch(tile, entry.tile))
-    .map(entry => entry.idx);
-}
-
-function trySplitRatioRefinement(
+function optimizeElasticSeams(
   ctx: SolverContext,
   candidate: Candidate,
+  profile: ElasticOptimizationProfile,
 ): Candidate {
+  if (candidate.tree.kind === "leaf") return candidate;
   let best = candidate;
-  const refinementTargets = [
-    candidate.diagnostics.worstTileIndex,
-    ...candidate.diagnostics.topSoftCropTileIndices,
-  ].slice(0, 3);
-  let attempts = 0;
+  let elasticTrials = 0;
+  let elasticAccepted = 0;
+  let continuousRefinements = 0;
 
-  for (const tileIdx of refinementTargets) {
-    const neighbors = findRefinementNeighbors(best, tileIdx);
-    for (const neighborIdx of neighbors) {
-      if (attempts >= 6) return best;
-      const a = best.tileOrder[tileIdx].tile;
-      const b = best.tileOrder[neighborIdx].tile;
-      const verticalPair = Math.abs(a.y - b.y) < 0.5 && Math.abs(a.h - b.h) < 0.5;
-      const horizontalPair = Math.abs(a.x - b.x) < 0.5 && Math.abs(a.w - b.w) < 0.5;
-      if (!verticalPair && !horizontalPair) continue;
+  const evaluateTree = (
+    tree: TileLayoutTree,
+    isContinuous: boolean = false,
+  ): Candidate | null => {
+    elasticTrials++;
+    if (isContinuous) continuousRefinements++;
+    return solveAssignmentForLayout(
+      ctx,
+      createLayoutCandidateFromTree(tree),
+      best.cw,
+      best.ch,
+      best.stage,
+      0,
+      best.metrics,
+    );
+  };
 
-      const deltas = [-0.08, 0.08];
-      for (const delta of deltas) {
-        const nextTileOrder = [...best.tileOrder];
-        if (verticalPair) {
-          const totalW = a.w + b.w;
-          const newW = clamp(Math.round(totalW * (a.w / totalW + delta)), 80, totalW - 80);
-          const left = a.x < b.x ? tileIdx : neighborIdx;
-          const right = left === tileIdx ? neighborIdx : tileIdx;
-          const leftTile = nextTileOrder[left].tile;
-          nextTileOrder[left] = {
-            ...nextTileOrder[left],
-            tile: { x: leftTile.x, y: leftTile.y, w: newW, h: leftTile.h },
-          };
-          nextTileOrder[right] = {
-            ...nextTileOrder[right],
-            tile: {
-              x: leftTile.x + newW,
-              y: leftTile.y,
-              w: totalW - newW,
-              h: leftTile.h,
-            },
-          };
-        } else {
-          const totalH = a.h + b.h;
-          const newH = clamp(Math.round(totalH * (a.h / totalH + delta)), 80, totalH - 80);
-          const top = a.y < b.y ? tileIdx : neighborIdx;
-          const bottom = top === tileIdx ? neighborIdx : tileIdx;
-          const topTile = nextTileOrder[top].tile;
-          nextTileOrder[top] = {
-            ...nextTileOrder[top],
-            tile: { x: topTile.x, y: topTile.y, w: topTile.w, h: newH },
-          };
-          nextTileOrder[bottom] = {
-            ...nextTileOrder[bottom],
-            tile: {
-              x: topTile.x,
-              y: topTile.y + newH,
-              w: topTile.w,
-              h: totalH - newH,
-            },
-          };
+  for (let round = 0; round < profile.coarseRounds; round++) {
+    const splitIds = collectOptimizableSplitIds(best, profile.maxPathSplits);
+    if (splitIds.length === 0) break;
+    let improved = false;
+
+    for (const splitId of splitIds) {
+      const node = findNodeById(best.tree, splitId);
+      if (!node || node.kind === "leaf") continue;
+      const depth = findNodeDepth(best.tree, splitId) ?? 0;
+      const { min, max } = getElasticBoundsForSplit(node, depth, profile);
+      if (max - min < 1e-4) continue;
+
+      for (const step of profile.coarseSteps) {
+        for (const sign of [-1, 1] as const) {
+          const nextRatio = clamp(node.baseRatio + step * sign, min, max);
+          if (Math.abs(nextRatio - node.ratio) < 1e-4) continue;
+          const refined = evaluateTree(
+            updateTreeSplitRatio(best.tree, splitId, nextRatio),
+          );
+          if (refined && compareCandidate(refined, best) < 0) {
+            best = refined;
+            elasticAccepted++;
+            improved = true;
+          }
         }
+      }
+    }
+    if (!improved) break;
+  }
 
-        const refined = buildCandidateFromAssignment(
-          ctx,
-          nextTileOrder,
-          best.tileToPhotoIndex,
-          best.cw,
-          best.ch,
-          best.stage,
-          best.metrics,
+  if (profile.allowContinuousRefinement && profile.fineTopK > 0) {
+    const splitIds = collectOptimizableSplitIds(best, profile.fineTopK);
+    for (const splitId of splitIds) {
+      const node = findNodeById(best.tree, splitId);
+      if (!node || node.kind === "leaf") continue;
+      const depth = findNodeDepth(best.tree, splitId) ?? 0;
+      let { min, max } = getElasticBoundsForSplit(node, depth, profile);
+      if (max - min < 1e-4) continue;
+
+      for (let iteration = 0; iteration < profile.fineIterations; iteration++) {
+        const leftRatio = min + (max - min) / 3;
+        const rightRatio = max - (max - min) / 3;
+        const leftCandidate = evaluateTree(
+          updateTreeSplitRatio(best.tree, splitId, leftRatio),
+          true,
         );
-        attempts++;
+        const rightCandidate = evaluateTree(
+          updateTreeSplitRatio(best.tree, splitId, rightRatio),
+          true,
+        );
+        const better =
+          leftCandidate && rightCandidate
+            ? compareCandidate(leftCandidate, rightCandidate) <= 0
+              ? leftCandidate
+              : rightCandidate
+            : leftCandidate ?? rightCandidate;
+        if (better && compareCandidate(better, best) < 0) {
+          best = better;
+          elasticAccepted++;
+        }
         if (
-          refined &&
-          (refined.quality.worstCropLoss < best.quality.worstCropLoss - 1e-6 ||
-            (refined.quality.photosOverSoftCropThreshold < best.quality.photosOverSoftCropThreshold &&
-              Math.abs(refined.quality.canvasDeltaRatio - best.quality.canvasDeltaRatio) < 1e-6))
+          leftCandidate &&
+          rightCandidate &&
+          compareCandidate(leftCandidate, rightCandidate) <= 0
         ) {
-          best = refined;
+          max = rightRatio;
+        } else {
+          min = leftRatio;
         }
       }
     }
   }
-  return best;
+
+  if (elasticTrials === 0 && continuousRefinements === 0) return best;
+  return {
+    ...best,
+    metrics: mergeMetrics(best.metrics, {
+      elasticTrials,
+      elasticAccepted,
+      continuousRefinements,
+    }),
+  };
 }
 
 function buildTileSetsForStage(
@@ -1485,18 +2358,22 @@ function buildTileSetsForStage(
   photoFeatures: PhotoFeature[],
   mode: LayoutSearchMode,
   attempt: number,
-): FillRect[][] {
-  const sets: FillRect[][] = [];
+): TileLayoutCandidate[] {
+  const sets: TileLayoutCandidate[] = [];
+  const pushTiles = (tiles: FillRect[]) => {
+    const layout = createLayoutCandidateForTiles(root, tiles);
+    if (layout) sets.push(layout);
+  };
   if (attempt % 2 === 0) {
-    sets.push(partitionRectToTiles(root, count, rand, ratioMin, ratioMax));
+    pushTiles(partitionRectToTiles(root, count, rand, ratioMin, ratioMax));
   }
-  sets.push(buildTilesFromProfile(count, root.w, root.h, profile, rand));
+  pushTiles(buildTilesFromProfile(count, root.w, root.h, profile, rand));
   if (attempt === 0) {
     const stripTiles = buildStripTilesFromProfile(count, root.w, root.h, profile, rand);
-    if (stripTiles) sets.push(stripTiles);
+    if (stripTiles) pushTiles(stripTiles);
   }
   if (mode === "deep") {
-    sets.push(
+    pushTiles(
       reserveTilesForPriorityPhotos(
         count,
         root.w,
@@ -1521,6 +2398,7 @@ export function fillArrangePhotosShared(
   const searchOptions = resolveSearchOptions(
     options.searchOptions,
     options.allowCanvasResize,
+    photos.length,
   );
   const qualityThresholds = resolveQualityThresholds(options.qualityThresholds);
   if (n === 0) {
@@ -1534,10 +2412,15 @@ export function fillArrangePhotosShared(
         cacheMisses: 0,
         orientationViolations: 0,
         canvasAdjustmentsTried: 1,
+        elasticTrials: 0,
+        elasticAccepted: 0,
+        localRetileAccepted: 0,
+        continuousRefinements: 0,
       },
       quality: {
         worstCropLoss: 0,
         averageCropLoss: 0,
+        sizeWeightedAverageCropLoss: 0,
         photosOverSoftCropThreshold: 0,
         photosOverCropThreshold: 0,
         photosCutRequiredRegions: 0,
@@ -1551,12 +2434,14 @@ export function fillArrangePhotosShared(
 
   const ratioMin = clamp(options.splitRatioMin ?? 0.38, 0.2, 0.49);
   const ratioMax = clamp(options.splitRatioMax ?? 0.62, 0.51, 0.8);
-  const baseSeed = options.seed ?? Math.floor(Math.random() * 1_000_000_000);
+  const baseSeed =
+    options.seed ?? hashStringToSeed(buildStableSeedKey(photos, canvasW, canvasH, searchOptions));
   const canvasSizes = createCanvasSizes(
     canvasW,
     canvasH,
-    searchOptions.mode,
+    searchOptions,
     searchOptions.allowCanvasResize,
+    photos.length,
   );
 
   const photoFeatures = photos.map(photo => ({
@@ -1576,7 +2461,7 @@ export function fillArrangePhotosShared(
       item.constraint.sizeRankWeight = 1 - rank / Math.max(1, photoFeatures.length - 1);
       item.constraint.softCropBudget = Math.min(
         item.constraint.softCropBudget,
-        item.constraint.maxCropLoss * (0.78 - item.constraint.sizeRankWeight * 0.18),
+        item.constraint.maxCropLoss * (0.72 - item.constraint.sizeRankWeight * 0.22),
       );
     });
 
@@ -1594,9 +2479,10 @@ export function fillArrangePhotosShared(
 
   let bestCandidate: Candidate | null = null;
   const stages = stagesForMode(searchOptions.mode);
+  const elasticProfile = getElasticProfile(searchOptions, photos.length);
   const maxPartitionAttempts = Math.min(
     searchOptions.maxSearchRounds,
-    attemptCountForMode(searchOptions.mode),
+    attemptCountForMode(searchOptions, photos.length),
   );
 
   for (const stage of stages) {
@@ -1611,8 +2497,9 @@ export function fillArrangePhotosShared(
 
     for (const { w: cW, h: cH } of canvasSizes) {
       const root: FillRect = { x: 0, y: 0, w: cW, h: cH };
-      const profile = buildTileProfileFromPhotos(photoFeatures, priorityPhotoIds);
+      const tileProfile = buildTileProfileFromPhotos(photoFeatures, priorityPhotoIds);
       let producedCandidate = false;
+      let canvasBest: Candidate | null = null;
 
       for (let attempt = 0; attempt < maxPartitionAttempts; attempt++) {
         let seed = (baseSeed + attempt * 2246822519 + stage.length * 977) >>> 0;
@@ -1626,19 +2513,17 @@ export function fillArrangePhotosShared(
           rand,
           ratioMin,
           ratioMax,
-          profile,
+          tileProfile,
           priorityPhotoIds,
           photoFeatures,
           searchOptions.mode,
           attempt,
         );
 
-        for (const tiles of tileSets) {
-          if (tiles.length !== n) continue;
-          const tileOrder = createTileOrder(tiles, cW, cH);
-          const candidate = solveAssignmentForTileOrder(
+        for (const layout of tileSets) {
+          const candidate = solveAssignmentForLayout(
             ctx,
-            tileOrder,
+            layout,
             cW,
             cH,
             stage,
@@ -1646,55 +2531,76 @@ export function fillArrangePhotosShared(
           );
           if (!candidate) continue;
           producedCandidate = true;
-          if (searchOptions.allowLocalRepair) {
-            let repaired = candidate;
-            if (searchOptions.mode !== "standard" || n <= 8) {
-              repaired = tryAdjacentSwapRepair(ctx, repaired);
-            }
-            if (searchOptions.mode !== "standard") {
-              repaired = tryLocalRetileRepair(ctx, repaired, seed);
-              repaired = trySplitRatioRefinement(ctx, repaired);
-            }
-            if (compareCandidate(repaired, candidate) < 0) {
-              if (!stageBest || compareCandidate(repaired, stageBest) < 0) {
-                stageBest = repaired;
-              }
-            }
-          }
-          if (!stageBest || compareCandidate(candidate, stageBest) < 0) {
-            stageBest = candidate;
+          if (!canvasBest || compareCandidate(candidate, canvasBest) < 0) {
+            canvasBest = candidate;
           }
 
           if (
-            stageBest.quality.accepted &&
-            stageBest.quality.worstCropLoss <= SOFT_CROP_THRESHOLD + 1e-6 &&
-            stageBest.quality.photosOverSoftCropThreshold === 0
+            canvasBest.quality.accepted &&
+            canvasBest.quality.worstCropLoss <= SOFT_CROP_THRESHOLD + 1e-6 &&
+            canvasBest.quality.photosOverSoftCropThreshold === 0
           ) {
             break;
           }
         }
 
         if (
-          stageBest?.quality.accepted &&
-          stageBest.quality.worstCropLoss <= SOFT_CROP_THRESHOLD + 1e-6 &&
-          stageBest.quality.photosOverSoftCropThreshold === 0
+          canvasBest?.quality.accepted &&
+          canvasBest.quality.worstCropLoss <= SOFT_CROP_THRESHOLD + 1e-6 &&
+          canvasBest.quality.photosOverSoftCropThreshold === 0
         ) {
           break;
         }
       }
 
       if (!producedCandidate) {
-        const fallback = solveAssignmentForTileOrder(
-          ctx,
-          createTileOrder(buildFallbackGridTiles(n, cW, cH), cW, cH),
-          cW,
-          cH,
-          stage,
-          canvasSizes.length,
+        const fallbackLayout = createLayoutCandidateForTiles(
+          root,
+          buildFallbackGridTiles(n, cW, cH),
         );
-        if (fallback && (!stageBest || compareCandidate(fallback, stageBest) < 0)) {
-          stageBest = fallback;
+        const fallback = fallbackLayout
+          ? solveAssignmentForLayout(
+              ctx,
+              fallbackLayout,
+              cW,
+              cH,
+              stage,
+              canvasSizes.length,
+            )
+          : null;
+        if (fallback) {
+          canvasBest = fallback;
         }
+      }
+
+      if (canvasBest && searchOptions.allowLocalRepair) {
+        let repaired = canvasBest;
+        if (searchOptions.mode !== "standard" || n <= 8) {
+          repaired = tryAdjacentSwapRepair(ctx, repaired);
+        }
+        repaired = optimizeElasticSeams(ctx, repaired, elasticProfile);
+        const shouldRetile =
+          elasticProfile.allowLocalRetile &&
+          (searchOptions.mode === "extended"
+            ? repaired.quality.photosOverSoftCropThreshold > 0
+            : repaired.quality.photosOverSoftCropThreshold > 0 ||
+              repaired.quality.worstCropLoss >
+                repaired.quality.softCropThreshold + 1e-6);
+        if (shouldRetile) {
+          repaired = tryLocalRetileRepair(ctx, repaired, baseSeed ^ cW ^ cH, elasticProfile);
+          if (elasticProfile.rerunAfterLocalRetile) {
+            repaired = optimizeElasticSeams(ctx, repaired, elasticProfile);
+          }
+        }
+        if (compareCandidate(repaired, canvasBest) < 0) {
+          canvasBest = repaired;
+        } else {
+          canvasBest = { ...canvasBest, metrics: repaired.metrics };
+        }
+      }
+
+      if (canvasBest && (!stageBest || compareCandidate(canvasBest, stageBest) < 0)) {
+        stageBest = canvasBest;
       }
 
       if (
@@ -1717,20 +2623,41 @@ export function fillArrangePhotosShared(
 
   const candidate =
     bestCandidate ??
-    solveAssignmentForTileOrder(
-      ctx,
-      createTileOrder(buildFallbackGridTiles(n, canvasW, canvasH), canvasW, canvasH),
-      canvasW,
-      canvasH,
-      searchOptions.mode === "standard" ? "relaxed" : "last_resort",
-      canvasSizes.length,
-    );
+    (() => {
+      const fallbackLayout = createLayoutCandidateForTiles(
+        { x: 0, y: 0, w: canvasW, h: canvasH },
+        buildFallbackGridTiles(n, canvasW, canvasH),
+      );
+      return fallbackLayout
+        ? solveAssignmentForLayout(
+            ctx,
+            fallbackLayout,
+            canvasW,
+            canvasH,
+            searchOptions.mode === "standard" ? "relaxed" : "last_resort",
+            canvasSizes.length,
+          )
+        : null;
+    })();
 
+  const fallbackLayout =
+    createLayoutCandidateForTiles(
+      { x: 0, y: 0, w: canvasW, h: canvasH },
+      buildFallbackGridTiles(n, canvasW, canvasH),
+    ) ??
+    createLayoutCandidateFromTree(
+      buildLeafNode(
+        `${TREE_ID_PREFIX}-fallback`,
+        { x: 0, y: 0, w: canvasW, h: canvasH },
+        1,
+      ),
+    );
   const resolvedCandidate =
     candidate ??
     buildCandidateFromAssignment(
       ctx,
-      createTileOrder(buildFallbackGridTiles(n, canvasW, canvasH), canvasW, canvasH),
+      fallbackLayout.tree,
+      createTileOrderFromLayout(fallbackLayout, canvasW, canvasH),
       photos.map((_, idx) => idx),
       canvasW,
       canvasH,
@@ -1741,6 +2668,10 @@ export function fillArrangePhotosShared(
         cacheMisses: 0,
         orientationViolations: 0,
         canvasAdjustmentsTried: canvasSizes.length,
+        elasticTrials: 0,
+        elasticAccepted: 0,
+        localRetileAccepted: 0,
+        continuousRefinements: 0,
       },
     );
 

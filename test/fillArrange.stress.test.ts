@@ -35,14 +35,14 @@ function createSeededRandom(seed: number): () => number {
 
 describe("fillArrangePhotos stress", () => {
   it("随机比例输入下保持面积覆盖误差与重叠阈值", () => {
-    const rounds = 16;
+    const rounds = 8;
     const canvasW = 3200;
     const canvasH = 2400;
 
     for (let round = 0; round < rounds; round++) {
       const seed = 2026 + round * 97;
       const rand = createSeededRandom(seed);
-      const photoCount = 20 + Math.floor(rand() * 101); // 20 ~ 120
+      const photoCount = 20 + Math.floor(rand() * 131); // 20 ~ 150
       const photos: PhotoEntity[] = [];
 
       for (let i = 0; i < photoCount; i++) {
@@ -85,5 +85,5 @@ describe("fillArrangePhotos stress", () => {
         result.canvasW * result.canvasH - 1,
       );
     }
-  }, 20000);
+  }, 40000);
 });

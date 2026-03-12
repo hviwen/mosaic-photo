@@ -155,6 +155,9 @@
       "success": "自动排列完成！",
       "failed": "排列失败，请重试",
       "deepSearchPartial": "已完成深度重排，但仍有少量照片存在明显裁剪",
+      "deepSearchFailed": "深度重排失败，请稍后重试或减少照片数量",
+      "deepSearchImproved": "深度重排已改善裁剪：重裁图片 {beforeCount} -> {afterCount}，最差裁剪 {beforeWorst}% -> {afterWorst}%",
+      "noBetterFound": "已尝试更深入的重排，但没有找到更优方案，当前布局已保持不变",
       "acceptedBestEffort": "已应用当前最佳方案"
     },
     "export": {
@@ -195,7 +198,14 @@
     "clearPhotos": "确定要清空所有照片吗？",
     "clearHistory": "确定要清空操作历史吗？",
     "deletePhoto": "确定要删除这张照片吗？",
-    "deepLayoutConfirm": "当前方案仍有 {count} 张照片裁剪较重（最严重约 {worst}%）。是否允许系统尝试更多画布尺寸和重排方案？"
+    "deepLayoutTitle": "进一步优化排版",
+    "deepLayoutConfirm": "当前方案仍有 {count} 张照片裁剪较重（最严重约 {worst}%）。是否允许系统尝试更多画布尺寸和更深入的重排方案？",
+    "deepLayoutHint": "这轮重排会更慢，但会启用更强的质量优先搜索，尽量继续降低重裁比例。",
+    "deepLayoutKeepCurrent": "应用当前方案",
+    "deepLayoutRetry": "重新排版",
+    "deepLayoutRetrying": "质量优先重排中...",
+    "deepLayoutWorst": "最重裁剪",
+    "deepLayoutCount": "重裁图片数"
   },
   "history": {
     "action": {

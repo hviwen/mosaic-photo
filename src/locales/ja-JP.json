@@ -155,6 +155,9 @@
       "success": "自動レイアウト完了！",
       "failed": "レイアウトに失敗しました。再試行してください",
       "deepSearchPartial": "深度レイアウトは完了しましたが、一部の写真はまだ大きくトリミングされています。",
+      "deepSearchFailed": "深度レイアウトに失敗しました。時間をおいて再試行するか、写真枚数を減らしてください。",
+      "deepSearchImproved": "深い再配置でトリミングを改善しました。大きく切られた枚数 {beforeCount} -> {afterCount}、最大トリミング {beforeWorst}% -> {afterWorst}%。",
+      "noBetterFound": "より深い探索を行いましたが、より良いレイアウトは見つからなかったため、現在のレイアウトを維持しました。",
       "acceptedBestEffort": "現在の最善レイアウトを適用しました。"
     },
     "export": {
@@ -195,7 +198,14 @@
     "clearPhotos": "すべての写真をクリアしてもよろしいですか？",
     "clearHistory": "履歴をクリアしてもよろしいですか？",
     "deletePhoto": "この写真を削除してもよろしいですか？",
-    "deepLayoutConfirm": "現在のレイアウトでは {count} 枚の写真が大きくトリミングされています（最大約 {worst}%）。より多くのキャンバスサイズと再配置案を試しますか？"
+    "deepLayoutTitle": "レイアウトをさらに最適化",
+    "deepLayoutConfirm": "現在のレイアウトでは {count} 枚の写真が大きくトリミングされています（最大約 {worst}%）。より多くのキャンバスサイズと、より深い再配置を試しますか？",
+    "deepLayoutHint": "この処理には時間がかかりますが、重いトリミングをさらに減らすため、より強い品質優先探索を行います。",
+    "deepLayoutKeepCurrent": "現在のレイアウトを使う",
+    "deepLayoutRetry": "再レイアウトする",
+    "deepLayoutRetrying": "品質優先で再配置中...",
+    "deepLayoutWorst": "最大トリミング",
+    "deepLayoutCount": "大きく切られた枚数"
   },
   "history": {
     "action": {

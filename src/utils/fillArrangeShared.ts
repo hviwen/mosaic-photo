@@ -4,6 +4,7 @@ import type {
   FillArrangeResult,
   LayoutMetrics,
   LayoutQualitySummary,
+  LayoutSearchIntent,
   LayoutQualityThresholds,
   LayoutSearchMode,
   LayoutSearchOptions,
@@ -179,7 +180,28 @@ function defaultModeForPhotoCount(count: number): LayoutSearchMode {
   return DEFAULT_SEARCH_OPTIONS.mode;
 }
 
-function defaultMaxSearchRounds(mode: LayoutSearchMode): number {
+function resolveSearchIntent(intent?: LayoutSearchIntent): LayoutSearchIntent {
+  return intent ?? "manual-assess";
+}
+
+function isQualityFirstDeepIntent(
+  intent?: LayoutSearchIntent,
+): boolean {
+  return intent === "auto-import" || intent === "manual-assess";
+}
+
+function defaultMaxSearchRounds(
+  mode: LayoutSearchMode,
+  intent: LayoutSearchIntent | undefined,
+  photoCount: number,
+): number {
+  if (mode === "deep" && intent === "confirmed-relayout") return 10;
+  if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    if (photoCount <= 24) return 12;
+    if (photoCount <= 72) return 8;
+    if (photoCount <= 120) return 6;
+    return 4;
+  }
   if (mode === "deep") return 10;
   if (mode === "extended") return 7;
   return DEFAULT_SEARCH_OPTIONS.maxSearchRounds;
@@ -187,6 +209,48 @@ function defaultMaxSearchRounds(mode: LayoutSearchMode): number {
 
 function clamp(num: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, num));
+}
+
+function hashStringToSeed(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) || 1;
+}
+
+function buildStableSeedKey(
+  photos: FillArrangePhotoInput[],
+  canvasW: number,
+  canvasH: number,
+  searchOptions: LayoutSearchOptions,
+): string {
+  const intent = resolveSearchIntent(searchOptions.intent);
+  const photoKey = photos
+    .map(photo => {
+      const crop = photo.crop;
+      return [
+        photo.id,
+        photo.imageWidth,
+        photo.imageHeight,
+        crop.x,
+        crop.y,
+        crop.width,
+        crop.height,
+      ].join(",");
+    })
+    .join("|");
+  return [
+    searchOptions.mode,
+    intent,
+    canvasW,
+    canvasH,
+    searchOptions.maxSearchRounds,
+    searchOptions.allowCanvasResize ? 1 : 0,
+    searchOptions.allowLocalRepair ? 1 : 0,
+    photoKey,
+  ].join("::");
 }
 
 function splitLength(total: number, parts: number): number[] {
@@ -1177,11 +1241,14 @@ function resolveSearchOptions(
   photoCount: number = 0,
 ): LayoutSearchOptions {
   const mode = options?.mode ?? defaultModeForPhotoCount(photoCount);
+  const intent = options?.intent;
   return {
     ...DEFAULT_SEARCH_OPTIONS,
     ...options,
     mode,
-    maxSearchRounds: options?.maxSearchRounds ?? defaultMaxSearchRounds(mode),
+    intent,
+    maxSearchRounds:
+      options?.maxSearchRounds ?? defaultMaxSearchRounds(mode, intent, photoCount),
     allowCanvasResize:
       allowCanvasResize ?? options?.allowCanvasResize ?? DEFAULT_SEARCH_OPTIONS.allowCanvasResize,
   };
@@ -1208,19 +1275,44 @@ function canvasDeltaRatio(
 function createCanvasSizes(
   canvasW: number,
   canvasH: number,
-  mode: LayoutSearchMode,
+  searchOptions: LayoutSearchOptions,
   allowCanvasResize: boolean,
   photoCount: number = 0,
 ): Array<{ w: number; h: number }> {
   if (!allowCanvasResize) return [{ w: canvasW, h: canvasH }];
   const sizes = new Map<string, { w: number; h: number }>();
+  const mode = searchOptions.mode;
+  const intent = searchOptions.intent;
   const addSize = (sx: number, sy: number) => {
     const w = Math.max(1, Math.round(canvasW * sx));
     const h = Math.max(1, Math.round(canvasH * sy));
     sizes.set(`${w}x${h}`, { w, h });
   };
 
-  if (mode === "deep") {
+  if (mode === "deep" && intent === "confirmed-relayout") {
+    for (const scale of [0.88, 0.92, 0.96, 1, 1.04, 1.08, 1.12, 1.16]) {
+      addSize(scale, scale);
+    }
+    for (const sx of [0.94, 0.98, 1.02, 1.06]) {
+      addSize(sx, 1);
+      addSize(1, sx);
+    }
+  } else if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    const scales =
+      photoCount > 120
+        ? [0.94, 0.98, 1, 1.04, 1.08]
+        : photoCount > 72
+          ? [0.92, 0.96, 1, 1.04, 1.08]
+          : [0.9, 0.94, 0.98, 1, 1.04, 1.08, 1.12];
+    for (const scale of scales) {
+      addSize(scale, scale);
+    }
+    const anisotropic = photoCount > 120 ? [0.98, 1.02] : [0.96, 1.04];
+    for (const sx of anisotropic) {
+      addSize(sx, 1);
+      addSize(1, sx);
+    }
+  } else if (mode === "deep") {
     const scales =
       photoCount >= 120
         ? [0.94, 0.98, 1, 1.04, 1.08]
@@ -1277,9 +1369,18 @@ function createCanvasSizes(
 }
 
 function attemptCountForMode(
-  mode: LayoutSearchMode,
+  searchOptions: LayoutSearchOptions,
   photoCount: number = 0,
 ): number {
+  const mode = searchOptions.mode;
+  const intent = searchOptions.intent;
+  if (mode === "deep" && intent === "confirmed-relayout") return 10;
+  if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    if (photoCount <= 24) return 12;
+    if (photoCount <= 72) return 8;
+    if (photoCount <= 120) return 6;
+    return 4;
+  }
   if (photoCount >= 120) {
     if (mode === "deep") return 4;
     if (mode === "extended") return 4;
@@ -1300,9 +1401,67 @@ function stagesForMode(mode: LayoutSearchMode): SearchStage[] {
 }
 
 function getElasticProfile(
-  mode: LayoutSearchMode,
+  searchOptions: LayoutSearchOptions,
   photoCount: number = 0,
 ): ElasticOptimizationProfile {
+  const mode = searchOptions.mode;
+  const intent = searchOptions.intent;
+  if (mode === "deep" && intent === "confirmed-relayout") {
+    return {
+      rootBudget: 0.15,
+      innerBudget: 0.15,
+      coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08, 0.12, 0.15],
+      coarseRounds: 4,
+      maxPathSplits: 5,
+      fineTopK: 3,
+      fineIterations: 5,
+      allowLocalRetile: true,
+      allowContinuousRefinement: true,
+      rerunAfterLocalRetile: true,
+    };
+  }
+  if (mode === "deep" && isQualityFirstDeepIntent(intent)) {
+    if (photoCount > 120) {
+      return {
+        rootBudget: 0.12,
+        innerBudget: 0.08,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06],
+        coarseRounds: 2,
+        maxPathSplits: 3,
+        fineTopK: 1,
+        fineIterations: 2,
+        allowLocalRetile: false,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    if (photoCount > 72) {
+      return {
+        rootBudget: 0.13,
+        innerBudget: 0.1,
+        coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08],
+        coarseRounds: 3,
+        maxPathSplits: 4,
+        fineTopK: 2,
+        fineIterations: 3,
+        allowLocalRetile: true,
+        allowContinuousRefinement: true,
+        rerunAfterLocalRetile: false,
+      };
+    }
+    return {
+      rootBudget: 0.13,
+      innerBudget: 0.1,
+      coarseSteps: [0.01, 0.02, 0.04, 0.06, 0.08],
+      coarseRounds: 3,
+      maxPathSplits: 4,
+      fineTopK: 2,
+      fineIterations: 3,
+      allowLocalRetile: true,
+      allowContinuousRefinement: true,
+      rerunAfterLocalRetile: false,
+    };
+  }
   if (mode === "deep") {
     if (photoCount >= 120) {
       return {
@@ -2275,11 +2434,12 @@ export function fillArrangePhotosShared(
 
   const ratioMin = clamp(options.splitRatioMin ?? 0.38, 0.2, 0.49);
   const ratioMax = clamp(options.splitRatioMax ?? 0.62, 0.51, 0.8);
-  const baseSeed = options.seed ?? Math.floor(Math.random() * 1_000_000_000);
+  const baseSeed =
+    options.seed ?? hashStringToSeed(buildStableSeedKey(photos, canvasW, canvasH, searchOptions));
   const canvasSizes = createCanvasSizes(
     canvasW,
     canvasH,
-    searchOptions.mode,
+    searchOptions,
     searchOptions.allowCanvasResize,
     photos.length,
   );
@@ -2319,10 +2479,10 @@ export function fillArrangePhotosShared(
 
   let bestCandidate: Candidate | null = null;
   const stages = stagesForMode(searchOptions.mode);
-  const elasticProfile = getElasticProfile(searchOptions.mode, photos.length);
+  const elasticProfile = getElasticProfile(searchOptions, photos.length);
   const maxPartitionAttempts = Math.min(
     searchOptions.maxSearchRounds,
-    attemptCountForMode(searchOptions.mode, photos.length),
+    attemptCountForMode(searchOptions, photos.length),
   );
 
   for (const stage of stages) {

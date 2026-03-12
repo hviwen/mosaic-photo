@@ -156,7 +156,8 @@
       "failed": "Layout failed, please try again",
       "deepSearchPartial": "Deep layout finished, but a few photos are still heavily cropped.",
       "deepSearchFailed": "Deeper rearrangement failed. Please try again later or reduce the number of photos.",
-      "noBetterFound": "A deeper search finished, but it did not find a visibly better layout.",
+      "deepSearchImproved": "Deeper rearrangement reduced cropping: heavily cropped {beforeCount} -> {afterCount}, worst crop {beforeWorst}% -> {afterWorst}%.",
+      "noBetterFound": "A deeper search finished, but it did not find a better layout, so the current layout was kept.",
       "acceptedBestEffort": "Applied the current best-effort layout."
     },
     "export": {
@@ -199,9 +200,10 @@
     "deletePhoto": "Are you sure you want to delete this photo?",
     "deepLayoutTitle": "Refine layout further",
     "deepLayoutConfirm": "The current layout still heavily crops {count} photo(s) (worst case about {worst}%). Allow the system to try more canvas sizes and a deeper rearrangement?",
-    "deepLayoutHint": "This pass takes longer. For larger photo sets, the system will automatically lower search intensity to keep the browser stable.",
+    "deepLayoutHint": "This pass takes longer, but it uses a stronger quality-first search to keep reducing heavy crops.",
     "deepLayoutKeepCurrent": "Use current layout",
     "deepLayoutRetry": "Rearrange again",
+    "deepLayoutRetrying": "Running quality-first search...",
     "deepLayoutWorst": "Worst crop",
     "deepLayoutCount": "Heavily cropped"
   },

@@ -181,12 +181,17 @@ export interface PhotoLayoutConstraint {
 }
 
 export type LayoutSearchMode = "standard" | "extended" | "deep";
+export type LayoutSearchIntent =
+  | "auto-import"
+  | "manual-assess"
+  | "confirmed-relayout";
 
 export interface LayoutSearchOptions {
   mode: LayoutSearchMode;
   allowCanvasResize: boolean;
   allowLocalRepair: boolean;
   maxSearchRounds: number;
+  intent?: LayoutSearchIntent;
 }
 
 export interface LayoutQualityThresholds {

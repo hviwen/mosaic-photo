@@ -12,6 +12,8 @@ import type {
   FillArrangeResult,
   LayoutQualitySummary,
   LayoutQualityThresholds,
+  LayoutSearchIntent,
+  LayoutSearchMode,
   LayoutSearchOptions,
 } from "@/types";
 import { fillArrangePhotos } from "@/composables/useLayout";
@@ -64,6 +66,25 @@ type LayoutWorkerFillArrangeRequest = {
 type LayoutWorkerFillArrangeResponse =
   | { id: number; ok: true; result: FillArrangeResult }
   | { id: number; ok: false; error: string };
+
+type LayoutRunMeta = {
+  intent: LayoutSearchIntent;
+  mode: LayoutSearchMode;
+  seed: number;
+  signature: string;
+};
+
+type DeepRelayoutOutcome = {
+  appliedResult: FillArrangeResult | null;
+  baselineResult: FillArrangeResult | null;
+  candidateResult: FillArrangeResult | null;
+  improved: boolean;
+  baselineAlreadyApplied: boolean;
+};
+
+type CloseableImageSource = CanvasImageSource & {
+  close?: () => void;
+};
 
 const DEFAULT_LAYOUT_QUALITY_THRESHOLDS: LayoutQualityThresholds = {
   maxWorstCropLoss: 0.12,
@@ -243,6 +264,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
       reject: (err: Error) => void;
     }
   >();
+  const lastLayoutResult = ref<FillArrangeResult | null>(null);
+  const lastLayoutSignature = ref("");
+  const lastLayoutSeed = ref<number | null>(null);
+  const lastAppliedLayoutFingerprint = ref("");
 
   function rejectAllLayoutWorkerPending(err: Error) {
     for (const p of layoutWorkerPending.values()) {
@@ -285,78 +310,61 @@ export const useMosaicStore = defineStore("mosaic", () => {
   function buildInitialLayoutSearchOptions(
     photoCount: number,
   ): Partial<LayoutSearchOptions> {
-    if (photoCount <= 12) {
-      return {
-        mode: "extended",
-        allowCanvasResize: true,
-        allowLocalRepair: true,
-        maxSearchRounds: 8,
-      };
-    }
-    if (photoCount <= 48) {
-      return {
-        mode: "extended",
-        allowCanvasResize: true,
-        allowLocalRepair: true,
-        maxSearchRounds: 6,
-      };
-    }
-    if (photoCount <= 96) {
-      return {
-        mode: "extended",
-        allowCanvasResize: true,
-        allowLocalRepair: true,
-        maxSearchRounds: 4,
-      };
-    }
-    return {
-      mode: "extended",
-      allowCanvasResize: true,
-      allowLocalRepair: true,
-      maxSearchRounds: 3,
-    };
-  }
-
-  function buildConfirmedRelayoutSearchOptions(
-    photoCount: number,
-  ): Partial<LayoutSearchOptions> {
-    if (photoCount <= 12) {
+    if (photoCount <= 24) {
       return {
         mode: "deep",
+        intent: "auto-import",
         allowCanvasResize: true,
         allowLocalRepair: true,
         maxSearchRounds: 12,
       };
     }
-    if (photoCount <= 24) {
+    if (photoCount <= 72) {
       return {
         mode: "deep",
+        intent: "auto-import",
         allowCanvasResize: true,
         allowLocalRepair: true,
         maxSearchRounds: 8,
       };
     }
-    if (photoCount <= 72) {
+    if (photoCount <= 120) {
       return {
         mode: "deep",
+        intent: "auto-import",
         allowCanvasResize: true,
         allowLocalRepair: true,
         maxSearchRounds: 6,
       };
     }
-    if (photoCount <= 120) {
-      return {
-        mode: "deep",
-        allowCanvasResize: true,
-        allowLocalRepair: true,
-        maxSearchRounds: 4,
-      };
-    }
     return {
       mode: "deep",
+      intent: "auto-import",
+      allowCanvasResize: true,
+      allowLocalRepair: false,
+      maxSearchRounds: 4,
+    };
+  }
+
+  function buildManualAssessSearchOptions(
+    photoCount: number,
+  ): Partial<LayoutSearchOptions> {
+    const base = buildInitialLayoutSearchOptions(photoCount);
+    return {
+      ...base,
+      intent: "manual-assess",
+    };
+  }
+
+  function buildConfirmedRelayoutSearchOptions(
+    _photoCount: number,
+  ): Partial<LayoutSearchOptions> {
+    return {
+      mode: "deep",
+      intent: "confirmed-relayout",
       allowCanvasResize: true,
       allowLocalRepair: true,
-      maxSearchRounds: 3,
+      maxSearchRounds: 10,
     };
   }
 
@@ -385,46 +393,87 @@ export const useMosaicStore = defineStore("mosaic", () => {
     return 0;
   }
 
-  function hasMeaningfulLayoutImprovement(
+  function isLayoutQualityImproved(
     baseline: FillArrangeResult | null | undefined,
     candidate: FillArrangeResult | null | undefined,
   ): boolean {
-    if (!baseline) return !!candidate;
     if (!candidate) return false;
-    if (!baseline.quality || !candidate.quality) return true;
-    if (candidate.quality.accepted && !baseline.quality.accepted) return true;
-    if (
-      candidate.quality.photosOverCropThreshold <
-      baseline.quality.photosOverCropThreshold
-    ) {
-      return true;
-    }
-    if (
-      candidate.quality.photosOverSoftCropThreshold <
-      baseline.quality.photosOverSoftCropThreshold
-    ) {
-      return true;
-    }
-    if (candidate.quality.worstCropLoss <= baseline.quality.worstCropLoss - 0.01) {
-      return true;
-    }
-    if (
-      candidate.quality.averageCropLoss <=
-      baseline.quality.averageCropLoss - 0.005
-    ) {
-      return true;
-    }
+    if (!baseline) return true;
+    if (candidate.quality?.accepted && !baseline.quality?.accepted) return true;
+    if (!baseline.quality || !candidate.quality) return false;
     return compareLayoutQuality(candidate.quality, baseline.quality) < 0;
+  }
+
+  function choosePreferredLayoutResult(
+    baseline: FillArrangeResult | null | undefined,
+    candidate: FillArrangeResult | null | undefined,
+  ): FillArrangeResult | null {
+    if (isLayoutQualityImproved(baseline, candidate)) return candidate ?? null;
+    return baseline ?? candidate ?? null;
   }
 
   function buildLayoutRequestOptions(
     searchOptions: Partial<LayoutSearchOptions>,
+    seed: number,
   ): LayoutWorkerFillArrangeOptions {
     return {
+      seed,
       searchOptions,
       qualityThresholds: DEFAULT_LAYOUT_QUALITY_THRESHOLDS,
       allowCanvasResize: true,
     };
+  }
+
+  function buildEmergencyLayoutRequestOptions(
+    seed: number,
+    intent: LayoutSearchIntent = "auto-import",
+  ): LayoutWorkerFillArrangeOptions {
+    return {
+      seed,
+      searchOptions: {
+        mode: "standard",
+        intent,
+        allowCanvasResize: false,
+        allowLocalRepair: false,
+        maxSearchRounds: 1,
+      },
+      qualityThresholds: DEFAULT_LAYOUT_QUALITY_THRESHOLDS,
+      allowCanvasResize: false,
+    };
+  }
+
+  async function resolveFillArrangeResult(
+    layoutOptions: LayoutWorkerFillArrangeOptions,
+  ): Promise<FillArrangeResult> {
+    try {
+      const workerResult = await computeFillArrangeInWorker(layoutOptions);
+      if (workerResult) return workerResult;
+    } catch {
+      const photoCount = photos.value.length;
+      const intent = layoutOptions.searchOptions?.intent ?? "auto-import";
+      const fallbackOptions =
+        typeof Worker !== "undefined" && photoCount > 24
+          ? buildEmergencyLayoutRequestOptions(layoutOptions.seed ?? 1, intent)
+          : layoutOptions;
+      return fillArrangePhotos(
+        photos.value,
+        canvasWidth.value,
+        canvasHeight.value,
+        fallbackOptions,
+      );
+    }
+    return fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+      ...layoutOptions,
+    });
+  }
+
+  async function runLayoutForCurrentPhotos(
+    searchOptions: Partial<LayoutSearchOptions>,
+  ): Promise<{ result: FillArrangeResult; meta: LayoutRunMeta }> {
+    const meta = buildLayoutRunMeta(searchOptions);
+    const layoutOptions = buildLayoutRequestOptions(searchOptions, meta.seed);
+    const result = await resolveFillArrangeResult(layoutOptions);
+    return { result, meta };
   }
 
   async function computeFillArrangeInWorker(
@@ -459,25 +508,28 @@ export const useMosaicStore = defineStore("mosaic", () => {
       detections: getSmartDetections(p.id),
     }));
 
-    const requestId = ++layoutWorkerReqId;
+    const reqId = ++layoutWorkerReqId;
     const w = getLayoutWorker();
-
-    const result = await new Promise<FillArrangeResult>((resolve, reject) => {
-      layoutWorkerPending.set(requestId, { resolve, reject });
-      const req: LayoutWorkerFillArrangeRequest = {
-        id: requestId,
-        type: "fillArrange",
-        photos: inputs,
-        canvasW: canvasWidth.value,
-        canvasH: canvasHeight.value,
-        options,
-      };
-      w.postMessage(req);
+    const p = new Promise<FillArrangeResult>((resolve, reject) => {
+      layoutWorkerPending.set(reqId, { resolve, reject });
     });
 
-    // Avoid applying stale results if photo list changed mid-flight.
-    const photoIdsNow = photos.value.map(p => p.id).join("|");
-    if (photoIdsNow !== photoIdsSnapshot) return null;
+    const req: LayoutWorkerFillArrangeRequest = {
+      id: reqId,
+      type: "fillArrange",
+      photos: inputs,
+      canvasW: canvasWidth.value,
+      canvasH: canvasHeight.value,
+      options,
+    };
+    w.postMessage(req);
+    const result = await p;
+
+    // If photo list changed while worker was running, ignore the stale result.
+    const currentIds = photos.value.map(p => p.id).join("|");
+    if (currentIds !== photoIdsSnapshot) {
+      throw new Error("layout-stale");
+    }
     return result;
   }
 
@@ -598,6 +650,133 @@ export const useMosaicStore = defineStore("mosaic", () => {
 
   function snapshotCanvas(): CanvasSnapshot {
     return photos.value.map(snapshotPhotoCore);
+  }
+
+  function hashStringToSeed(input: string): number {
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) || 1;
+  }
+
+  function formatLayoutNumber(value: number, digits: number = 4): string {
+    return Number.isFinite(value) ? value.toFixed(digits) : "NaN";
+  }
+
+  function cropRectFingerprint(crop?: CropRect): string {
+    if (!crop) return "-";
+    return [
+      formatLayoutNumber(crop.x),
+      formatLayoutNumber(crop.y),
+      formatLayoutNumber(crop.width),
+      formatLayoutNumber(crop.height),
+    ].join(",");
+  }
+
+  function tileRectFingerprint(rect?: { x: number; y: number; w: number; h: number }): string {
+    if (!rect) return "-";
+    return [
+      formatLayoutNumber(rect.x),
+      formatLayoutNumber(rect.y),
+      formatLayoutNumber(rect.w),
+      formatLayoutNumber(rect.h),
+    ].join(",");
+  }
+
+  function buildLayoutInputSignature(
+    currentCanvasW: number = canvasWidth.value,
+    currentCanvasH: number = canvasHeight.value,
+  ): string {
+    const photoKey = photos.value
+      .map(photo =>
+        [
+          photo.id,
+          photo.imageWidth,
+          photo.imageHeight,
+          cropRectFingerprint(photo.crop),
+        ].join(":"),
+      )
+      .join("|");
+    return `${currentCanvasW}x${currentCanvasH}|${photoKey}`;
+  }
+
+  function buildCurrentPlacementFingerprint(): string {
+    const placementKey = [...photos.value]
+      .map(photo =>
+        [
+          photo.id,
+          formatLayoutNumber(photo.cx),
+          formatLayoutNumber(photo.cy),
+          formatLayoutNumber(photo.scale, 6),
+          formatLayoutNumber(photo.rotation, 6),
+          cropRectFingerprint(photo.layoutCrop),
+          tileRectFingerprint(photo.tileRect),
+        ].join(":"),
+      )
+      .sort()
+      .join("|");
+    return `${canvasWidth.value}x${canvasHeight.value}|${placementKey}`;
+  }
+
+  function buildResultPlacementFingerprint(result: FillArrangeResult): string {
+    const placementKey = [...result.placements]
+      .map(placement =>
+        [
+          placement.id,
+          formatLayoutNumber(placement.cx),
+          formatLayoutNumber(placement.cy),
+          formatLayoutNumber(placement.scale, 6),
+          formatLayoutNumber(placement.rotation, 6),
+          cropRectFingerprint(placement.crop),
+          tileRectFingerprint(placement.tileRect),
+        ].join(":"),
+      )
+      .sort()
+      .join("|");
+    return `${result.canvasW}x${result.canvasH}|${placementKey}`;
+  }
+
+  function deriveLayoutSeed(
+    signature: string,
+    intent: LayoutSearchIntent,
+    mode: LayoutSearchMode,
+  ): number {
+    return hashStringToSeed(`${mode}::${intent}::${signature}`);
+  }
+
+  function buildLayoutRunMeta(
+    searchOptions: Partial<LayoutSearchOptions>,
+  ): LayoutRunMeta {
+    const mode = searchOptions.mode ?? "standard";
+    const intent = searchOptions.intent ?? "manual-assess";
+    const signature = buildLayoutInputSignature();
+    return {
+      mode,
+      intent,
+      signature,
+      seed: deriveLayoutSeed(signature, intent, mode),
+    };
+  }
+
+  function isCurrentLayoutCacheValid(): boolean {
+    return (
+      !!lastLayoutResult.value &&
+      lastLayoutSignature.value === buildLayoutInputSignature() &&
+      lastAppliedLayoutFingerprint.value === buildCurrentPlacementFingerprint()
+    );
+  }
+
+  function getCurrentLayoutBaseline(): FillArrangeResult | null {
+    return isCurrentLayoutCacheValid() ? lastLayoutResult.value : null;
+  }
+
+  function isResultCurrentlyApplied(
+    result: FillArrangeResult | null | undefined,
+  ): boolean {
+    if (!result) return false;
+    return buildResultPlacementFingerprint(result) === buildCurrentPlacementFingerprint();
   }
 
   function applyPhotoCoreSnapshot(photo: PhotoEntity, snap: PhotoCoreSnapshot) {
@@ -881,7 +1060,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
           // ignore
         }
         // 无历史记录时可以释放 bitmap 资源（避免内存上涨）
-        const img = photos.value[index].image as any;
+        const img = photos.value[index].image as CloseableImageSource;
         if (img && typeof img.close === "function") {
           try {
             img.close();
@@ -999,6 +1178,9 @@ export const useMosaicStore = defineStore("mosaic", () => {
 
   function autoLayout() {
     if (photos.value.length === 0) return;
+    const searchOptions = buildInitialLayoutSearchOptions(photos.value.length);
+    const meta = buildLayoutRunMeta(searchOptions);
+    const layoutOptions = buildLayoutRequestOptions(searchOptions, meta.seed);
     console.log(
       "[LayoutDebug] autoLayout: Starting layout for",
       photos.value.length,
@@ -1008,11 +1190,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       photos.value,
       canvasWidth.value,
       canvasHeight.value,
-      {
-        searchOptions: buildInitialLayoutSearchOptions(photos.value.length),
-        qualityThresholds: DEFAULT_LAYOUT_QUALITY_THRESHOLDS,
-        allowCanvasResize: true,
-      },
+      layoutOptions,
     );
     console.log(
       "[LayoutDebug] autoLayout: Generated",
@@ -1022,48 +1200,16 @@ export const useMosaicStore = defineStore("mosaic", () => {
       "x",
       result.canvasH,
     );
-    // Apply adjusted canvas dimensions (±100px adaptive fit)
-    if (
-      result.canvasW !== canvasWidth.value ||
-      result.canvasH !== canvasHeight.value
-    ) {
-      canvasWidth.value = result.canvasW;
-      canvasHeight.value = result.canvasH;
-    }
-    applyPlacements(result.placements);
+    applyFillArrangeResult(result, meta);
   }
 
   async function autoLayoutAsync(): Promise<boolean> {
     if (photos.value.length === 0) return true;
-    const layoutOptions = buildLayoutRequestOptions(
+    const { result, meta } = await runLayoutForCurrentPhotos(
       buildInitialLayoutSearchOptions(photos.value.length),
     );
-
-    try {
-      const result = await computeFillArrangeInWorker(layoutOptions);
-      if (!result) {
-        const fallback = fillArrangePhotos(
-          photos.value,
-          canvasWidth.value,
-          canvasHeight.value,
-          layoutOptions,
-        );
-        applyFillArrangeResult(fallback);
-        return true;
-      }
-      applyFillArrangeResult(result);
-      return true;
-    } catch {
-      // Fallback to main thread on any worker error.
-      const fallback = fillArrangePhotos(
-        photos.value,
-        canvasWidth.value,
-        canvasHeight.value,
-        layoutOptions,
-      );
-      applyFillArrangeResult(fallback);
-      return true;
-    }
+    applyFillArrangeResult(result, meta);
+    return true;
   }
 
   function autoLayoutWithHistory(label: string = translate("history.action.autoLayout")) {
@@ -1100,7 +1246,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
     });
   }
 
-  function applyFillArrangeResult(result: FillArrangeResult) {
+  function applyFillArrangeResult(
+    result: FillArrangeResult,
+    meta?: Partial<LayoutRunMeta>,
+  ) {
     if (
       result.canvasW !== canvasWidth.value ||
       result.canvasH !== canvasHeight.value
@@ -1109,68 +1258,66 @@ export const useMosaicStore = defineStore("mosaic", () => {
       canvasHeight.value = result.canvasH;
     }
     applyPlacements(result.placements);
+    const signature = buildLayoutInputSignature();
+    const mode = meta?.mode ?? "deep";
+    const intent = meta?.intent ?? "manual-assess";
+    lastLayoutResult.value = result;
+    lastLayoutSignature.value = signature;
+    lastLayoutSeed.value =
+      meta?.seed ?? deriveLayoutSeed(signature, intent, mode);
+    lastAppliedLayoutFingerprint.value = buildResultPlacementFingerprint(result);
   }
 
   async function autoLayoutAssess(): Promise<FillArrangeResult | null> {
     if (photos.value.length === 0) return null;
-    const layoutOptions = buildLayoutRequestOptions(
-      buildInitialLayoutSearchOptions(photos.value.length),
+    const baseline = getCurrentLayoutBaseline();
+    if (baseline) return baseline;
+
+    const { result, meta } = await runLayoutForCurrentPhotos(
+      buildManualAssessSearchOptions(photos.value.length),
     );
-
-    try {
-      const result =
-        (await computeFillArrangeInWorker(layoutOptions)) ??
-        fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
-          ...layoutOptions,
-        });
-
-      if (result.quality?.accepted) {
-        applyFillArrangeResult(result);
-      }
-      return result;
-    } catch {
-      const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
-        ...layoutOptions,
-      });
-      if (result.quality?.accepted) {
-        applyFillArrangeResult(result);
-      }
-      return result;
+    if (result.quality?.accepted) {
+      applyFillArrangeResult(result, meta);
     }
+    return result;
   }
 
   async function autoLayoutDeepSearchConfirmed(
     baselineResult?: FillArrangeResult | null,
-  ): Promise<FillArrangeResult | null> {
-    if (photos.value.length === 0) return null;
-    const photoCount = photos.value.length;
-    const layoutOptions = buildLayoutRequestOptions(
-      buildConfirmedRelayoutSearchOptions(photoCount),
-    );
-
-    const applyPreferredResult = (candidate: FillArrangeResult | null) => {
-      const chosen =
-        baselineResult && !hasMeaningfulLayoutImprovement(baselineResult, candidate)
-          ? baselineResult
-          : candidate;
-      if (!chosen) return null;
-      applyFillArrangeResult(chosen);
-      return chosen;
-    };
-
-    try {
-      const result = await computeFillArrangeInWorker(layoutOptions);
-      if (!result) return applyPreferredResult(baselineResult ?? null);
-      return applyPreferredResult(result);
-    } catch (err) {
-      if (typeof Worker === "undefined" && photoCount <= 8) {
-        const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
-          ...layoutOptions,
-        });
-        return applyPreferredResult(result);
-      }
-      throw err;
+  ): Promise<DeepRelayoutOutcome> {
+    if (photos.value.length === 0) {
+      return {
+        appliedResult: null,
+        baselineResult: null,
+        candidateResult: null,
+        improved: false,
+        baselineAlreadyApplied: false,
+      };
     }
+
+    const baseline = baselineResult ?? getCurrentLayoutBaseline();
+    const baselineAlreadyApplied = isResultCurrentlyApplied(baseline);
+    const { result: candidateResult, meta } = await runLayoutForCurrentPhotos(
+      buildConfirmedRelayoutSearchOptions(photos.value.length),
+    );
+    const improved = isLayoutQualityImproved(baseline, candidateResult);
+    const chosen = choosePreferredLayoutResult(baseline, candidateResult);
+
+    if (chosen) {
+      if (improved) {
+        applyFillArrangeResult(chosen, meta);
+      } else if (!baselineAlreadyApplied) {
+        applyFillArrangeResult(chosen);
+      }
+    }
+
+    return {
+      appliedResult: chosen,
+      baselineResult: baseline ?? null,
+      candidateResult,
+      improved,
+      baselineAlreadyApplied,
+    };
   }
 
   function applyBestEffortLayout(result: FillArrangeResult | null): boolean {
@@ -1790,7 +1937,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
         } catch {
           // ignore
         }
-        const img = p.image as any;
+        const img = p.image as CloseableImageSource;
         if (img && typeof img.close === "function") {
           try {
             img.close();
@@ -1870,6 +2017,9 @@ export const useMosaicStore = defineStore("mosaic", () => {
     isExporting,
     mode,
     history,
+    lastLayoutResult,
+    lastLayoutSignature,
+    lastLayoutSeed,
 
     // Computed
     currentPreset,

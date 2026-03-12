@@ -282,7 +282,7 @@
             :loading="isDeepLayoutSubmitting"
             @click="confirmDeepLayout"
           >
-            {{ t('dialog.deepLayoutRetry') }}
+            {{ deepLayoutActionLabel }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -318,7 +318,7 @@ const pendingLayoutAssessment = ref<FillArrangeResult | null>(null)
 const qualityPercent = computed(() => Math.round(store.exportQuality * 100))
 
 const presetOptions = computed(() =>
-  store.presets.map(p => ({ label: t(p.label as any), value: p.id }))
+  store.presets.map(p => ({ label: t(p.label as string), value: p.id }))
 )
 
 const resolutionOptions = computed(() => [
@@ -339,6 +339,28 @@ const deepLayoutWorstPercent = computed(() =>
 const deepLayoutHeavyCropCount = computed(
   () => pendingLayoutAssessment.value?.quality?.photosOverCropThreshold ?? 0
 )
+const deepLayoutActionLabel = computed(() =>
+  isDeepLayoutSubmitting.value
+    ? t('dialog.deepLayoutRetrying')
+    : t('dialog.deepLayoutRetry')
+)
+
+function cropLossPercent(value?: number) {
+  return Math.round((value ?? 0) * 100)
+}
+
+function deepLayoutDeltaMessage(
+  baseline: FillArrangeResult | null | undefined,
+  result: FillArrangeResult | null | undefined
+) {
+  if (!baseline?.quality || !result?.quality) return ''
+  return t('toast.layout.deepSearchImproved', {
+    beforeCount: baseline.quality.photosOverCropThreshold,
+    afterCount: result.quality.photosOverCropThreshold,
+    beforeWorst: cropLossPercent(baseline.quality.worstCropLoss),
+    afterWorst: cropLossPercent(result.quality.worstCropLoss),
+  })
+}
 
 function handlePresetSelect(v: unknown) {
   store.setPreset(String(v ?? ''))
@@ -461,17 +483,36 @@ async function confirmDeepLayout() {
   isDeepLayoutSubmitting.value = true
   try {
     const baseline = pendingLayoutAssessment.value
-    const result = await store.autoLayoutDeepSearchConfirmed(baseline)
+    const outcome = await store.autoLayoutDeepSearchConfirmed(baseline)
     closeDeepLayoutDialog()
-    if (!result) return
-    if (result === baseline) {
-      toast.info(t('toast.layout.noBetterFound'))
+    if (!outcome.appliedResult) return
+
+    if (!outcome.improved) {
+      if (outcome.baselineAlreadyApplied) {
+        toast.info(t('toast.layout.noBetterFound'))
+      } else {
+        toast.warning(t('toast.layout.acceptedBestEffort'))
+      }
       return
     }
-    if (result.quality?.accepted) {
-      toast.success(t('toast.layout.success'))
+
+    const deltaMessage = deepLayoutDeltaMessage(
+      outcome.baselineResult,
+      outcome.appliedResult
+    )
+    if (!deltaMessage) {
+      if (outcome.appliedResult.quality?.accepted) {
+        toast.success(t('toast.layout.success'))
+      } else {
+        toast.warning(t('toast.layout.deepSearchPartial'))
+      }
+      return
+    }
+
+    if (outcome.appliedResult.quality?.accepted) {
+      toast.success(deltaMessage)
     } else {
-      toast.warning(t('toast.layout.deepSearchPartial'))
+      toast.warning(deltaMessage)
     }
   } catch (err) {
     console.error('Deep arrange failed:', err)

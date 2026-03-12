@@ -10,6 +10,7 @@ import type {
   Placement,
   PhotoAdjustments,
   FillArrangeResult,
+  LayoutQualitySummary,
   LayoutQualityThresholds,
   LayoutSearchOptions,
 } from "@/types";
@@ -63,6 +64,13 @@ type LayoutWorkerFillArrangeRequest = {
 type LayoutWorkerFillArrangeResponse =
   | { id: number; ok: true; result: FillArrangeResult }
   | { id: number; ok: false; error: string };
+
+const DEFAULT_LAYOUT_QUALITY_THRESHOLDS: LayoutQualityThresholds = {
+  maxWorstCropLoss: 0.12,
+  maxAverageCropLoss: 0.06,
+  maxPhotosOverCropThreshold: 1,
+  requireKeepRegionsFullyVisible: true,
+};
 
 const PRESETS: CanvasPreset[] = [
   { id: "40x50", label: "preset.40x50", width: 4724, height: 5906 },
@@ -274,6 +282,151 @@ export const useMosaicStore = defineStore("mosaic", () => {
     return w;
   }
 
+  function buildInitialLayoutSearchOptions(
+    photoCount: number,
+  ): Partial<LayoutSearchOptions> {
+    if (photoCount <= 12) {
+      return {
+        mode: "extended",
+        allowCanvasResize: true,
+        allowLocalRepair: true,
+        maxSearchRounds: 8,
+      };
+    }
+    if (photoCount <= 48) {
+      return {
+        mode: "extended",
+        allowCanvasResize: true,
+        allowLocalRepair: true,
+        maxSearchRounds: 6,
+      };
+    }
+    if (photoCount <= 96) {
+      return {
+        mode: "extended",
+        allowCanvasResize: true,
+        allowLocalRepair: true,
+        maxSearchRounds: 4,
+      };
+    }
+    return {
+      mode: "extended",
+      allowCanvasResize: true,
+      allowLocalRepair: true,
+      maxSearchRounds: 3,
+    };
+  }
+
+  function buildConfirmedRelayoutSearchOptions(
+    photoCount: number,
+  ): Partial<LayoutSearchOptions> {
+    if (photoCount <= 12) {
+      return {
+        mode: "deep",
+        allowCanvasResize: true,
+        allowLocalRepair: true,
+        maxSearchRounds: 12,
+      };
+    }
+    if (photoCount <= 24) {
+      return {
+        mode: "deep",
+        allowCanvasResize: true,
+        allowLocalRepair: true,
+        maxSearchRounds: 8,
+      };
+    }
+    if (photoCount <= 72) {
+      return {
+        mode: "deep",
+        allowCanvasResize: true,
+        allowLocalRepair: true,
+        maxSearchRounds: 6,
+      };
+    }
+    if (photoCount <= 120) {
+      return {
+        mode: "deep",
+        allowCanvasResize: true,
+        allowLocalRepair: true,
+        maxSearchRounds: 4,
+      };
+    }
+    return {
+      mode: "deep",
+      allowCanvasResize: true,
+      allowLocalRepair: true,
+      maxSearchRounds: 3,
+    };
+  }
+
+  function compareLayoutQuality(
+    a?: LayoutQualitySummary,
+    b?: LayoutQualitySummary,
+  ): number {
+    if (!a && !b) return 0;
+    if (!a) return 1;
+    if (!b) return -1;
+    const keys: Array<keyof LayoutQualitySummary> = [
+      "photosCutRequiredRegions",
+      "worstCropLoss",
+      "photosOverSoftCropThreshold",
+      "photosOverCropThreshold",
+      "sizeWeightedAverageCropLoss",
+      "averageCropLoss",
+      "orientationViolations",
+      "canvasDeltaRatio",
+    ];
+    for (const key of keys) {
+      const av = a[key] as number;
+      const bv = b[key] as number;
+      if (av !== bv) return av - bv;
+    }
+    return 0;
+  }
+
+  function hasMeaningfulLayoutImprovement(
+    baseline: FillArrangeResult | null | undefined,
+    candidate: FillArrangeResult | null | undefined,
+  ): boolean {
+    if (!baseline) return !!candidate;
+    if (!candidate) return false;
+    if (!baseline.quality || !candidate.quality) return true;
+    if (candidate.quality.accepted && !baseline.quality.accepted) return true;
+    if (
+      candidate.quality.photosOverCropThreshold <
+      baseline.quality.photosOverCropThreshold
+    ) {
+      return true;
+    }
+    if (
+      candidate.quality.photosOverSoftCropThreshold <
+      baseline.quality.photosOverSoftCropThreshold
+    ) {
+      return true;
+    }
+    if (candidate.quality.worstCropLoss <= baseline.quality.worstCropLoss - 0.01) {
+      return true;
+    }
+    if (
+      candidate.quality.averageCropLoss <=
+      baseline.quality.averageCropLoss - 0.005
+    ) {
+      return true;
+    }
+    return compareLayoutQuality(candidate.quality, baseline.quality) < 0;
+  }
+
+  function buildLayoutRequestOptions(
+    searchOptions: Partial<LayoutSearchOptions>,
+  ): LayoutWorkerFillArrangeOptions {
+    return {
+      searchOptions,
+      qualityThresholds: DEFAULT_LAYOUT_QUALITY_THRESHOLDS,
+      allowCanvasResize: true,
+    };
+  }
+
   async function computeFillArrangeInWorker(
     options?: LayoutWorkerFillArrangeOptions,
   ): Promise<FillArrangeResult | null> {
@@ -289,6 +442,10 @@ export const useMosaicStore = defineStore("mosaic", () => {
           cacheMisses: 0,
           orientationViolations: 0,
           canvasAdjustmentsTried: 1,
+          elasticTrials: 0,
+          elasticAccepted: 0,
+          localRetileAccepted: 0,
+          continuousRefinements: 0,
         },
       };
     }
@@ -851,6 +1008,11 @@ export const useMosaicStore = defineStore("mosaic", () => {
       photos.value,
       canvasWidth.value,
       canvasHeight.value,
+      {
+        searchOptions: buildInitialLayoutSearchOptions(photos.value.length),
+        qualityThresholds: DEFAULT_LAYOUT_QUALITY_THRESHOLDS,
+        allowCanvasResize: true,
+      },
     );
     console.log(
       "[LayoutDebug] autoLayout: Generated",
@@ -873,20 +1035,33 @@ export const useMosaicStore = defineStore("mosaic", () => {
 
   async function autoLayoutAsync(): Promise<boolean> {
     if (photos.value.length === 0) return true;
+    const layoutOptions = buildLayoutRequestOptions(
+      buildInitialLayoutSearchOptions(photos.value.length),
+    );
 
     try {
-      const result = await computeFillArrangeInWorker({
-        searchOptions: { mode: "standard" },
-      });
+      const result = await computeFillArrangeInWorker(layoutOptions);
       if (!result) {
-        autoLayout();
+        const fallback = fillArrangePhotos(
+          photos.value,
+          canvasWidth.value,
+          canvasHeight.value,
+          layoutOptions,
+        );
+        applyFillArrangeResult(fallback);
         return true;
       }
       applyFillArrangeResult(result);
       return true;
     } catch {
       // Fallback to main thread on any worker error.
-      autoLayout();
+      const fallback = fillArrangePhotos(
+        photos.value,
+        canvasWidth.value,
+        canvasHeight.value,
+        layoutOptions,
+      );
+      applyFillArrangeResult(fallback);
       return true;
     }
   }
@@ -938,28 +1113,15 @@ export const useMosaicStore = defineStore("mosaic", () => {
 
   async function autoLayoutAssess(): Promise<FillArrangeResult | null> {
     if (photos.value.length === 0) return null;
+    const layoutOptions = buildLayoutRequestOptions(
+      buildInitialLayoutSearchOptions(photos.value.length),
+    );
 
     try {
       const result =
-        (await computeFillArrangeInWorker({
-          searchOptions: { mode: "standard" },
-          qualityThresholds: {
-            maxWorstCropLoss: 0.12,
-            maxAverageCropLoss: 0.06,
-            maxPhotosOverCropThreshold: 1,
-            requireKeepRegionsFullyVisible: true,
-          },
-          allowCanvasResize: true,
-        })) ??
+        (await computeFillArrangeInWorker(layoutOptions)) ??
         fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
-          searchOptions: { mode: "standard" },
-          qualityThresholds: {
-            maxWorstCropLoss: 0.12,
-            maxAverageCropLoss: 0.06,
-            maxPhotosOverCropThreshold: 1,
-            requireKeepRegionsFullyVisible: true,
-          },
-          allowCanvasResize: true,
+          ...layoutOptions,
         });
 
       if (result.quality?.accepted) {
@@ -968,14 +1130,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
       return result;
     } catch {
       const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
-        searchOptions: { mode: "standard" },
-        qualityThresholds: {
-          maxWorstCropLoss: 0.12,
-          maxAverageCropLoss: 0.06,
-          maxPhotosOverCropThreshold: 1,
-          requireKeepRegionsFullyVisible: true,
-        },
-        allowCanvasResize: true,
+        ...layoutOptions,
       });
       if (result.quality?.accepted) {
         applyFillArrangeResult(result);
@@ -984,62 +1139,44 @@ export const useMosaicStore = defineStore("mosaic", () => {
     }
   }
 
-  async function autoLayoutDeepSearchConfirmed(): Promise<FillArrangeResult | null> {
+  async function autoLayoutDeepSearchConfirmed(
+    baselineResult?: FillArrangeResult | null,
+  ): Promise<FillArrangeResult | null> {
     if (photos.value.length === 0) return null;
+    const photoCount = photos.value.length;
+    const layoutOptions = buildLayoutRequestOptions(
+      buildConfirmedRelayoutSearchOptions(photoCount),
+    );
+
+    const applyPreferredResult = (candidate: FillArrangeResult | null) => {
+      const chosen =
+        baselineResult && !hasMeaningfulLayoutImprovement(baselineResult, candidate)
+          ? baselineResult
+          : candidate;
+      if (!chosen) return null;
+      applyFillArrangeResult(chosen);
+      return chosen;
+    };
 
     try {
-      const result =
-        (await computeFillArrangeInWorker({
-          searchOptions: {
-            mode: "deep",
-            allowCanvasResize: true,
-            allowLocalRepair: true,
-            maxSearchRounds: 16,
-          },
-          qualityThresholds: {
-            maxWorstCropLoss: 0.12,
-            maxAverageCropLoss: 0.06,
-            maxPhotosOverCropThreshold: 1,
-            requireKeepRegionsFullyVisible: true,
-          },
-          allowCanvasResize: true,
-        })) ??
-        fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
-          searchOptions: {
-            mode: "deep",
-            allowCanvasResize: true,
-            allowLocalRepair: true,
-            maxSearchRounds: 16,
-          },
-          qualityThresholds: {
-            maxWorstCropLoss: 0.12,
-            maxAverageCropLoss: 0.06,
-            maxPhotosOverCropThreshold: 1,
-            requireKeepRegionsFullyVisible: true,
-          },
-          allowCanvasResize: true,
+      const result = await computeFillArrangeInWorker(layoutOptions);
+      if (!result) return applyPreferredResult(baselineResult ?? null);
+      return applyPreferredResult(result);
+    } catch (err) {
+      if (typeof Worker === "undefined" && photoCount <= 8) {
+        const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
+          ...layoutOptions,
         });
-      applyFillArrangeResult(result);
-      return result;
-    } catch {
-      const result = fillArrangePhotos(photos.value, canvasWidth.value, canvasHeight.value, {
-        searchOptions: {
-          mode: "deep",
-          allowCanvasResize: true,
-          allowLocalRepair: true,
-          maxSearchRounds: 16,
-        },
-        qualityThresholds: {
-          maxWorstCropLoss: 0.12,
-          maxAverageCropLoss: 0.06,
-          maxPhotosOverCropThreshold: 1,
-          requireKeepRegionsFullyVisible: true,
-        },
-        allowCanvasResize: true,
-      });
-      applyFillArrangeResult(result);
-      return result;
+        return applyPreferredResult(result);
+      }
+      throw err;
     }
+  }
+
+  function applyBestEffortLayout(result: FillArrangeResult | null): boolean {
+    if (!result) return false;
+    applyFillArrangeResult(result);
+    return true;
   }
 
   function applyPlacementsWithHistory(placements: Placement[], label: string) {
@@ -1755,6 +1892,7 @@ export const useMosaicStore = defineStore("mosaic", () => {
     autoLayoutAsync,
     autoLayoutAssess,
     autoLayoutDeepSearchConfirmed,
+    applyBestEffortLayout,
     autoLayoutWithHistory,
     autoLayoutWithHistoryAsync,
     applyPlacementsWithHistory,

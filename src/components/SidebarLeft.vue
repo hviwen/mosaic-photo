@@ -236,6 +236,57 @@
         </v-card-text>
       </v-card>
     </div>
+
+    <v-dialog
+      v-model="showDeepLayoutDialog"
+      max-width="520"
+      persistent
+    >
+      <v-card class="deep-layout-dialog">
+        <v-card-title class="text-subtitle-1 font-weight-bold">
+          {{ t('dialog.deepLayoutTitle') }}
+        </v-card-title>
+        <v-card-text class="pt-2">
+          <p class="mb-3">
+            {{ t('dialog.deepLayoutConfirm', {
+              worst: deepLayoutWorstPercent,
+              count: deepLayoutHeavyCropCount,
+            }) }}
+          </p>
+          <div class="deep-layout-metrics">
+            <div class="deep-layout-metric">
+              <span class="deep-layout-metric__label">{{ t('dialog.deepLayoutWorst') }}</span>
+              <strong>{{ deepLayoutWorstPercent }}%</strong>
+            </div>
+            <div class="deep-layout-metric">
+              <span class="deep-layout-metric__label">{{ t('dialog.deepLayoutCount') }}</span>
+              <strong>{{ deepLayoutHeavyCropCount }}</strong>
+            </div>
+          </div>
+          <div class="hint mt-3">
+            {{ t('dialog.deepLayoutHint') }}
+          </div>
+        </v-card-text>
+        <v-card-actions class="px-4 pb-4">
+          <v-spacer />
+          <v-btn
+            variant="text"
+            :disabled="isDeepLayoutSubmitting"
+            @click="applyBestEffortLayout"
+          >
+            {{ t('dialog.deepLayoutKeepCurrent') }}
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="isDeepLayoutSubmitting"
+            @click="confirmDeepLayout"
+          >
+            {{ t('dialog.deepLayoutRetry') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -248,6 +299,7 @@ import { useUiStore } from '@/stores/ui'
 import { isImageImportError, isValidImageFile } from '@/utils/image'
 import type { ExportFormat, ExportResolutionPreset } from '@/types'
 import PhotoList from './PhotoList.vue'
+import type { FillArrangeResult } from '@/types'
 
 const store = useMosaicStore()
 const toast = useToastStore()
@@ -259,6 +311,9 @@ const selectedFiles = ref<File[]>([])
 const projectInputEl = ref<HTMLInputElement | null>(null)
 const exportProgress = ref<{ done: number; total: number; label?: string } | null>(null)
 const exportAbort = ref<AbortController | null>(null)
+const showDeepLayoutDialog = ref(false)
+const isDeepLayoutSubmitting = ref(false)
+const pendingLayoutAssessment = ref<FillArrangeResult | null>(null)
 
 const qualityPercent = computed(() => Math.round(store.exportQuality * 100))
 
@@ -278,6 +333,12 @@ const formatOptions = computed(() => [
   { label: t('export.format.jpeg'), value: 'jpeg' },
   { label: t('export.format.webp'), value: 'webp' },
 ])
+const deepLayoutWorstPercent = computed(() =>
+  Math.round((pendingLayoutAssessment.value?.quality?.worstCropLoss ?? 0) * 100)
+)
+const deepLayoutHeavyCropCount = computed(
+  () => pendingLayoutAssessment.value?.quality?.photosOverCropThreshold ?? 0
+)
 
 function handlePresetSelect(v: unknown) {
   store.setPreset(String(v ?? ''))
@@ -372,29 +433,54 @@ async function handleArrange() {
       return
     }
 
-    const confirmed = confirm(
-      t('dialog.deepLayoutConfirm', {
-        worst: Math.round((assessed.quality?.worstCropLoss ?? 0) * 100),
-        count: assessed.quality?.photosOverCropThreshold ?? 0,
-      })
-    )
-
-    if (confirmed) {
-      const result = await store.autoLayoutDeepSearchConfirmed()
-      if (result?.quality?.accepted) {
-        toast.success(t('toast.layout.success'))
-      } else {
-        toast.warning(t('toast.layout.deepSearchPartial'))
-      }
-    } else {
-      store.applyFillArrangeResult(assessed)
-      toast.warning(t('toast.layout.acceptedBestEffort'))
-    }
+    pendingLayoutAssessment.value = assessed
+    showDeepLayoutDialog.value = true
   } catch (err) {
     console.error('Arrange failed:', err)
-    toast.error(t('toast.layout.failed'))
+    const message = err instanceof Error && err.message ? err.message : t('toast.layout.failed')
+    toast.error(message)
   } finally {
     isArranging.value = false
+  }
+}
+
+function closeDeepLayoutDialog() {
+  showDeepLayoutDialog.value = false
+  pendingLayoutAssessment.value = null
+}
+
+function applyBestEffortLayout() {
+  if (!store.applyBestEffortLayout(pendingLayoutAssessment.value)) return
+  closeDeepLayoutDialog()
+  toast.warning(t('toast.layout.acceptedBestEffort'))
+}
+
+async function confirmDeepLayout() {
+  if (!pendingLayoutAssessment.value) return
+
+  isDeepLayoutSubmitting.value = true
+  try {
+    const baseline = pendingLayoutAssessment.value
+    const result = await store.autoLayoutDeepSearchConfirmed(baseline)
+    closeDeepLayoutDialog()
+    if (!result) return
+    if (result === baseline) {
+      toast.info(t('toast.layout.noBetterFound'))
+      return
+    }
+    if (result.quality?.accepted) {
+      toast.success(t('toast.layout.success'))
+    } else {
+      toast.warning(t('toast.layout.deepSearchPartial'))
+    }
+  } catch (err) {
+    console.error('Deep arrange failed:', err)
+    const message = err instanceof Error && err.message
+      ? err.message
+      : t('toast.layout.deepSearchFailed')
+    toast.error(message)
+  } finally {
+    isDeepLayoutSubmitting.value = false
   }
 }
 
@@ -483,5 +569,29 @@ function clearAll() {
   align-items: center;
   justify-content: space-between;
   margin-top: 0.5rem;
+}
+
+.deep-layout-dialog {
+  border-radius: 18px;
+}
+
+.deep-layout-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.deep-layout-metric {
+  border-radius: 12px;
+  padding: 0.875rem 1rem;
+  background: rgba(var(--v-theme-primary), 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.deep-layout-metric__label {
+  font-size: 0.8rem;
+  opacity: 0.78;
 }
 </style>
